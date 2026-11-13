@@ -3,16 +3,46 @@ import type { LiveVehicle, RailCategory, TransitMode } from '../types/transit.ts
 export interface ModeMeta {
   mode: TransitMode;
   label: string;
+  englishLabel: string;
+  shortCode: string;
   color: string;
 }
 
 export const MODE_META: Record<TransitMode, ModeMeta> = {
-  bus: { mode: 'bus', label: 'Bus', color: '#EF4444' },
-  tram: { mode: 'tram', label: 'Tram', color: '#38BDF8' },
-  train: { mode: 'train', label: 'Train', color: '#10B981' },
-  metro: { mode: 'metro', label: 'Metro', color: '#F97316' },
-  ferry: { mode: 'ferry', label: 'Ferry', color: '#14B8A6' },
+  bus: { mode: 'bus', label: 'Buss', englishLabel: 'Bus', shortCode: 'B', color: '#E60000' },
+  tram: { mode: 'tram', label: 'Trikk', englishLabel: 'Tram', shortCode: 'TR', color: '#0B92E5' },
+  train: { mode: 'train', label: 'Tog', englishLabel: 'Train', shortCode: 'TG', color: '#10B981' },
+  metro: { mode: 'metro', label: 'T-bane', englishLabel: 'Metro', shortCode: 'T', color: '#EC700C' },
+  ferry: { mode: 'ferry', label: 'Båt', englishLabel: 'Ferry', shortCode: 'BÅ', color: '#14B8A6' },
 };
+
+const DARK_TEXT_BADGE_OVERRIDES: Record<string, string> = {
+  '#E60000': '#C8102E',
+  '#EF4444': '#C8102E',
+  '#8B5CF6': '#6D28D9',
+  '#A855F7': '#7E22CE',
+};
+
+function hexRelativeLuminance(hex: string): number | null {
+  const clean = hex.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const toLinear = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+/** Returns WCAG AA-compliant badge background and foreground colors for any transit line color. */
+export function getBadgeStyle(rawColor: string): { backgroundColor: string; color: string } {
+  const normalized = rawColor.trim().toUpperCase();
+  const backgroundColor = DARK_TEXT_BADGE_OVERRIDES[normalized] ?? rawColor;
+  const luminance = hexRelativeLuminance(backgroundColor);
+  if (luminance !== null && luminance > 0.175) {
+    return { backgroundColor, color: '#070A10' };
+  }
+  return { backgroundColor, color: '#FFFFFF' };
+}
 
 export const MODE_ORDER: TransitMode[] = ['bus', 'tram', 'train', 'metro', 'ferry'];
 

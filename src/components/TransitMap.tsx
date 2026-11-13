@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import type {
   BoundingBox,
@@ -10,7 +10,11 @@ import type {
 } from '../types/transit.ts';
 import { OSLO_CENTER, OSLO_HUBS } from '../services/entur.ts';
 import {
+  formatDelay,
+  formatSpeedKmh,
+  getBadgeStyle,
   getVehicleColor,
+  MODE_META,
   type CameraPreset,
 } from './transitTheme.ts';
 import {
@@ -40,6 +44,7 @@ interface TransitMapProps {
   selectedHubId: string | null;
   shouldFitStopRoutes?: boolean;
   searchQuery?: string;
+  fitRouteSeq?: number;
   cameraRequest: { preset: CameraPreset; seq: number } | null;
   onSelectVehicle: (vehicle: LiveVehicle | null) => void;
   onSelectHub: (hub: OsloHub | null) => void;
@@ -99,6 +104,7 @@ export function TransitMap({
   selectedHubId,
   shouldFitStopRoutes = false,
   searchQuery = '',
+  fitRouteSeq = 0,
   cameraRequest,
   onSelectVehicle,
   onSelectHub,
@@ -109,6 +115,11 @@ export function TransitMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapReadyRef = useRef(false);
+  const [hoveredVehicle, setHoveredVehicle] = useState<{
+    vehicle: LiveVehicle;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const vehiclesRef = useRef<LiveVehicle[]>([]);
   const vehiclesByIdRef = useRef<Map<string, LiveVehicle>>(new Map());
@@ -121,7 +132,7 @@ export function TransitMap({
   const gpsTrackRef = useRef<Map<string, GpsTrackState>>(new Map());
   const followVehicleIdRef = useRef<string | null>(followVehicleId);
   const userGestureActiveRef = useRef(false);
-  const lastFittedJourneyIdRef = useRef<string | null>(null);
+  const lastHandledFitSeqRef = useRef(0);
   const lastFittedStopRoutesIdRef = useRef<string | null>(null);
   const prevFollowVehicleIdRef = useRef<string | null>(null);
 
@@ -157,8 +168,13 @@ export function TransitMap({
       attributionControl: { compact: true },
     });
 
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+
+    const resizeObserver = new ResizeObserver(() => {
+      map.resize();
+    });
+    resizeObserver.observe(containerRef.current);
 
     let animFrameId: number | null = null;
     let lastFramePerf = 0;
@@ -208,14 +224,34 @@ export function TransitMap({
       addTransitMapLayers(map);
 
       const vehicleHitLayers = ['vehicles-body', 'vehicles-halo'];
+      const canHover = () =>
+        typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
+
       map.on('mouseenter', vehicleHitLayers, () => {
         map.getCanvas().style.cursor = 'pointer';
       });
+      map.on('mousemove', vehicleHitLayers, (e) => {
+        if (!canHover()) return;
+        const id = e.features?.[0]?.properties?.id as string | undefined;
+        const vehicle = id ? vehiclesByIdRef.current.get(id) : undefined;
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (vehicle && rect) {
+          setHoveredVehicle({
+            vehicle,
+            x: rect.left + e.point.x,
+            y: rect.top + e.point.y,
+          });
+        } else {
+          setHoveredVehicle(null);
+        }
+      });
       map.on('mouseleave', vehicleHitLayers, () => {
         map.getCanvas().style.cursor = '';
+        setHoveredVehicle(null);
       });
 
       map.on('click', vehicleHitLayers, (e) => {
+        setHoveredVehicle(null);
         const id = e.features?.[0]?.properties?.id as string | undefined;
         const vehicle = id ? vehiclesByIdRef.current.get(id) : undefined;
         if (vehicle) onSelectVehicleRef.current(vehicle);
@@ -295,6 +331,7 @@ export function TransitMap({
       };
 
       map.on('movestart', (e) => {
+        setHoveredVehicle(null);
         if (e.originalEvent) userGestureActiveRef.current = true;
       });
       map.on('dragstart', (e) => {
@@ -387,6 +424,7 @@ export function TransitMap({
       canvasContainer.removeEventListener('touchcancel', onTouchEnd, { capture: true });
       canvasContainer.removeEventListener('wheel', onWheel, { capture: true });
       if (animFrameId !== null) cancelAnimationFrame(animFrameId);
+      resizeObserver.disconnect();
       mapReadyRef.current = false;
       map.remove();
       mapRef.current = null;
@@ -433,37 +471,57 @@ export function TransitMap({
       buildJourneyLineFeature(vehicleJourney?.remainingCoordinates ?? [], color),
     );
     syncGeoJsonSource(map, 'journey-stops', buildJourneyStopFeatures(vehicleJourney, color));
-
-    if (!selectedVehicleId) {
-      lastFittedJourneyIdRef.current = null;
-      return;
-    }
-
-    if (
-      vehicleJourney &&
-      vehicleJourney.vehicleId === selectedVehicleId &&
-      lastFittedJourneyIdRef.current !== selectedVehicleId &&
-      !followVehicleIdRef.current
-    ) {
-      const routeCoords: Array<[number, number]> = [
-        ...vehicleJourney.pastCoordinates,
-        ...vehicleJourney.remainingCoordinates,
-      ];
-      if (routeCoords.length < 2) {
-        for (const s of [...vehicleJourney.pastStops, ...vehicleJourney.upcomingStops]) {
-          routeCoords.push([s.lon, s.lat]);
-        }
-      }
-      if (routeCoords.length >= 2) {
-        lastFittedJourneyIdRef.current = selectedVehicleId;
-        fitMapToCoordinates(map, routeCoords, {
-          maxZoom: 14.2,
-          duration: 850,
-          hasRightDrawer: true,
-        });
-      }
-    }
   }, [vehicleJourney, selectedVehicleId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReadyRef.current || !selectedVehicleId || followVehicleIdRef.current) return;
+
+    const pos = currentPosRef.current.get(selectedVehicleId);
+    const vehicle = vehiclesByIdRef.current.get(selectedVehicleId);
+    const lon = pos?.lon ?? vehicle?.longitude;
+    const lat = pos?.lat ?? vehicle?.latitude;
+    if (lon === undefined || lat === undefined) return;
+
+    const bounds = map.getBounds();
+    const isOutsideView = !bounds.contains([lon, lat]);
+    const isTooZoomedOut = map.getZoom() < 11.5;
+
+    if (isOutsideView || isTooZoomedOut) {
+      map.easeTo({
+        center: [lon, lat],
+        zoom: Math.max(map.getZoom(), 13.0),
+        duration: 500,
+        essential: true,
+      });
+    }
+  }, [selectedVehicleId]);
+
+  useEffect(() => {
+    if (!fitRouteSeq || fitRouteSeq === lastHandledFitSeqRef.current) return;
+    lastHandledFitSeqRef.current = fitRouteSeq;
+
+    const map = mapRef.current;
+    const journey = vehicleJourneyRef.current;
+    if (!map || !mapReadyRef.current || !journey) return;
+
+    const routeCoords: Array<[number, number]> = [
+      ...journey.pastCoordinates,
+      ...journey.remainingCoordinates,
+    ];
+    if (routeCoords.length < 2) {
+      for (const s of [...journey.pastStops, ...journey.upcomingStops]) {
+        routeCoords.push([s.lon, s.lat]);
+      }
+    }
+    if (routeCoords.length >= 2) {
+      fitMapToCoordinates(map, routeCoords, {
+        maxZoom: 14.2,
+        duration: 750,
+        hasRightDrawer: true,
+      });
+    }
+  }, [fitRouteSeq]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -615,6 +673,17 @@ export function TransitMap({
         6,
       ]);
     }
+    if (selectedHubId) {
+      const hub = OSLO_HUBS.find((h) => h.id === selectedHubId);
+      if (hub && (!map.getBounds().contains([hub.longitude, hub.latitude]) || map.getZoom() < 13.0)) {
+        map.easeTo({
+          center: [hub.longitude, hub.latitude],
+          zoom: Math.max(map.getZoom(), 13.5),
+          duration: 650,
+          essential: true,
+        });
+      }
+    }
   }, [selectedHubId]);
 
   useEffect(() => {
@@ -631,5 +700,49 @@ export function TransitMap({
     });
   }, [cameraRequest]);
 
-  return <div ref={containerRef} className="map-container" />;
+  const tooltipVehicle =
+    hoveredVehicle && hoveredVehicle.vehicle.id !== selectedVehicleId
+      ? hoveredVehicle
+      : null;
+
+  return (
+    <>
+      <div ref={containerRef} className="map-container" />
+      {tooltipVehicle && (
+        <div
+          className="vehicle-tooltip"
+          style={{
+            left:
+              typeof window !== 'undefined' && tooltipVehicle.x > window.innerWidth - 280
+                ? tooltipVehicle.x - 270
+                : tooltipVehicle.x,
+            top: tooltipVehicle.y,
+          }}
+          role="status"
+        >
+          <div className="tooltip-top">
+            <span
+              className="tooltip-line"
+              style={getBadgeStyle(getVehicleColor(tooltipVehicle.vehicle))}
+            >
+              {tooltipVehicle.vehicle.lineCode}
+            </span>
+            <span className="tooltip-operator">
+              {MODE_META[tooltipVehicle.vehicle.mode].label} · {tooltipVehicle.vehicle.operator}
+            </span>
+          </div>
+          <div className="tooltip-dest">{tooltipVehicle.vehicle.destination}</div>
+          <div className="tooltip-stats">
+            {formatSpeedKmh(tooltipVehicle.vehicle.speed)}
+            {formatDelay(tooltipVehicle.vehicle.delaySeconds).text !== '—'
+              ? ` · ${formatDelay(tooltipVehicle.vehicle.delaySeconds).text}`
+              : ''}
+            {tooltipVehicle.vehicle.nextStopName
+              ? ` · Next: ${tooltipVehicle.vehicle.nextStopName}`
+              : ''}
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

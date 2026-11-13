@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Crosshair, Flag, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Crosshair, Flag, Maximize2, X } from 'lucide-react';
 import type { LiveVehicle, VehicleJourneyDetails } from '../types/transit.ts';
 import { ModeIcon } from './ModeIcon.tsx';
 import {
@@ -7,6 +7,7 @@ import {
   formatDelay,
   formatOsloTime,
   formatSpeedKmh,
+  getBadgeStyle,
   getVehicleColor,
   MODE_META,
 } from './transitTheme.ts';
@@ -15,8 +16,10 @@ interface VehicleDetailCardProps {
   vehicle: LiveVehicle;
   journey: VehicleJourneyDetails | null;
   journeyLoading: boolean;
+  journeyError?: string | null;
   isFollowing: boolean;
   onToggleFollow: () => void;
+  onFitRoute?: () => void;
   onClose: () => void;
 }
 
@@ -24,17 +27,25 @@ export function VehicleDetailCard({
   vehicle,
   journey,
   journeyLoading,
+  journeyError,
   isFollowing,
   onToggleFollow,
+  onFitRoute,
   onClose,
 }: VehicleDetailCardProps) {
   const [isMinimized, setIsMinimized] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
   );
   const color = getVehicleColor(vehicle);
+  const badgeStyle = getBadgeStyle(color);
   const modeLabel = MODE_META[vehicle.mode].label;
   const delay = formatDelay(vehicle.delaySeconds);
   const isGps = vehicle.positionSource === 'gps';
+  const hasRouteGeometry = Boolean(
+    journey &&
+      (journey.pastCoordinates.length + journey.remainingCoordinates.length >= 2 ||
+        journey.pastStops.length + journey.upcomingStops.length >= 2),
+  );
 
   if (isMinimized) {
     return (
@@ -48,7 +59,7 @@ export function VehicleDetailCard({
           onClick={() => setIsMinimized(false)}
           aria-label="Expand vehicle details"
         >
-          <span className="line-badge" style={{ backgroundColor: color }}>
+          <span className="line-badge" style={badgeStyle}>
             {vehicle.lineCode}
           </span>
           <div className="detail-mini-text">
@@ -78,7 +89,7 @@ export function VehicleDetailCard({
             aria-label={isFollowing ? 'Stop following vehicle' : 'Follow vehicle'}
             title={isFollowing ? 'Following vehicle' : 'Follow vehicle'}
           >
-            <Crosshair size={14} />
+            <Crosshair size={15} />
           </button>
           <button
             type="button"
@@ -87,16 +98,16 @@ export function VehicleDetailCard({
             aria-label="Expand vehicle details"
             title="Expand details"
           >
-            <ChevronUp size={15} />
+            <ChevronUp size={16} />
           </button>
           <button
             type="button"
             className="icon-btn"
             onClick={onClose}
             aria-label="Close vehicle details"
-            title="Close & clear route"
+            title="Close & clear route (Esc)"
           >
-            <X size={15} />
+            <X size={16} />
           </button>
         </div>
       </aside>
@@ -107,7 +118,7 @@ export function VehicleDetailCard({
     <aside className="glass-panel detail-card" aria-label="Selected vehicle details">
       <div className="detail-header">
         <div className="detail-line-row">
-          <span className="line-badge" style={{ backgroundColor: color }}>
+          <span className="line-badge" style={badgeStyle}>
             {vehicle.lineCode}
           </span>
           <span className="mode-tag">
@@ -134,16 +145,16 @@ export function VehicleDetailCard({
             aria-label="Minimize vehicle details"
             title="Minimize to keep route visible"
           >
-            <ChevronDown size={15} />
+            <ChevronDown size={16} />
           </button>
           <button
             type="button"
             className="icon-btn"
             onClick={onClose}
             aria-label="Close vehicle details"
-            title="Close & clear route"
+            title="Close & clear route (Esc)"
           >
-            <X size={15} />
+            <X size={16} />
           </button>
         </div>
       </div>
@@ -160,7 +171,7 @@ export function VehicleDetailCard({
           <div className="detail-subline">From {vehicle.origin}</div>
         )}
         {(vehicle.currentStopName || vehicle.nextStopName) && (
-          <div className="detail-subline" style={{ color: '#bae6fd', marginTop: 4 }}>
+          <div className="detail-subline detail-stop-progress">
             {vehicle.currentStopName && vehicle.nextStopName
               ? `${vehicle.currentStopName} → ${vehicle.nextStopName}`
               : vehicle.nextStopName
@@ -194,17 +205,33 @@ export function VehicleDetailCard({
         </div>
       </div>
 
-      <button
-        type="button"
-        className={`follow-btn${isFollowing ? ' active' : ''}`}
-        onClick={onToggleFollow}
-      >
-        <Crosshair size={14} />
-        {isFollowing ? 'Following Vehicle' : 'Follow Vehicle'}
-      </button>
+      <div className="detail-actions-row">
+        <button
+          type="button"
+          className={`follow-btn${isFollowing ? ' active' : ''}`}
+          onClick={onToggleFollow}
+        >
+          <Crosshair size={14} />
+          {isFollowing ? 'Following' : 'Follow Vehicle'}
+        </button>
+
+        {hasRouteGeometry && onFitRoute && (
+          <button
+            type="button"
+            className="fit-route-btn"
+            onClick={onFitRoute}
+            title="Zoom map to full journey"
+          >
+            <Maximize2 size={14} />
+            Fit Route
+          </button>
+        )}
+      </div>
 
       {journeyLoading && !journey ? (
         <div className="detail-subline">Loading route &amp; upcoming stops…</div>
+      ) : journeyError && !journey ? (
+        <div className="detail-subline">{journeyError}</div>
       ) : journey ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {journey.endStationName && (
@@ -221,16 +248,7 @@ export function VehicleDetailCard({
                 <Flag size={13} color={color} style={{ flexShrink: 0 }} />
                 <div style={{ minWidth: 0 }}>
                   <div className="telemetry-label">Terminus</div>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 600,
-                      color: '#f8fafc',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
+                  <div className="telemetry-terminus-name">
                     {journey.endStationName}
                   </div>
                 </div>
@@ -259,7 +277,7 @@ export function VehicleDetailCard({
                   Upcoming Stops ({journey.upcomingStops.length})
                 </span>
                 {journey.pastStops.length > 0 && (
-                  <span style={{ fontSize: 10.5, color: '#64748b' }}>
+                  <span className="telemetry-meta">
                     {journey.pastStops.length} passed
                   </span>
                 )}
@@ -275,12 +293,10 @@ export function VehicleDetailCard({
                       style={{ gridTemplateColumns: '10px 1fr auto', padding: '6px 9px' }}
                     >
                       <span
+                        className="stop-timeline-dot"
                         style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: 999,
                           backgroundColor: idx === 0 ? color : '#475569',
-                          boxShadow: idx === 0 ? `0 0 8px ${color}` : 'none',
+                          borderColor: idx === 0 ? '#f8fafc' : 'transparent',
                         }}
                       />
                       <span
@@ -289,7 +305,7 @@ export function VehicleDetailCard({
                       >
                         {stop.name}
                       </span>
-                      <span className="departure-time" style={{ fontSize: 11.5 }}>
+                      <span className="departure-time" style={{ fontSize: 12 }}>
                         {eta ? formatOsloTime(eta).slice(0, 5) : '—'}
                       </span>
                     </div>

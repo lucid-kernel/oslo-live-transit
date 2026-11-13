@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MODE_META, MODE_ORDER } from './transitTheme.ts';
 
 interface BootScreenProps {
   isVisible: boolean;
@@ -6,12 +7,11 @@ interface BootScreenProps {
   mapReady: boolean;
 }
 
-const BOOT_DOTS = [
-  { label: 'Bus', color: '#EF4444', delayMs: 0 },
-  { label: 'Tram', color: '#38BDF8', delayMs: 160 },
-  { label: 'Metro', color: '#8B5CF6', delayMs: 320 },
-  { label: 'Train', color: '#10B981', delayMs: 480 },
-];
+const BOOT_DOTS = MODE_ORDER.map((mode, idx) => ({
+  label: MODE_META[mode].label,
+  color: MODE_META[mode].color,
+  delayMs: idx * 140,
+}));
 
 /** Full-screen loading overlay that fades out once the map and initial Entur live feed are ready. */
 export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps) {
@@ -29,7 +29,7 @@ export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps
   } else if (hasVehicles) {
     statusText = 'Oslo live network ready';
   } else if (elapsedPhase) {
-    statusText = 'Mapping Oslo buses, trams, metro & rail…';
+    statusText = 'Mapping Oslo Buss, Trikk, T-bane, Tog & Båt…';
   }
 
   return (
@@ -46,7 +46,7 @@ export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps
       </div>
 
       <div className="boot-brand">
-        <h1 className="boot-title">Oslo Live Transit</h1>
+        <div className="boot-title">Oslo Live Transit</div>
         <div className="boot-status">{statusText}</div>
       </div>
 
@@ -57,7 +57,6 @@ export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps
             className="boot-mode-dot"
             style={{
               backgroundColor: dot.color,
-              boxShadow: `0 0 10px ${dot.color}88`,
               animationDelay: `${dot.delayMs}ms`,
             }}
           />

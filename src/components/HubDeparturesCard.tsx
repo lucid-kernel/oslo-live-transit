@@ -1,13 +1,20 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, MapPin, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronUp, MapPin, RotateCw, X } from 'lucide-react';
 import type { OsloHub, StopDeparture } from '../types/transit.ts';
-import { formatDepartureCountdown, formatOsloTime, getRouteColor, MODE_META } from './transitTheme.ts';
+import {
+  formatDepartureCountdown,
+  formatOsloTime,
+  getBadgeStyle,
+  getRouteColor,
+  MODE_META,
+} from './transitTheme.ts';
 
 interface HubDeparturesCardProps {
   hub: OsloHub;
   departures: StopDeparture[];
   isLoading: boolean;
   error: string | null;
+  onRetry?: () => void;
   onClose: () => void;
 }
 
@@ -16,9 +23,19 @@ export function HubDeparturesCard({
   departures,
   isLoading,
   error,
+  onRetry,
   onClose,
 }: HubDeparturesCardProps) {
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
+  );
+  const [, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const nextDep = departures[0];
 
   if (isMinimized) {
@@ -60,16 +77,16 @@ export function HubDeparturesCard({
             aria-label="Expand stop departures"
             title="Expand departures"
           >
-            <ChevronUp size={15} />
+            <ChevronUp size={16} />
           </button>
           <button
             type="button"
             className="icon-btn"
             onClick={onClose}
             aria-label="Close hub departures"
-            title="Close & clear stop routes"
+            title="Close & clear stop routes (Esc)"
           >
-            <X size={15} />
+            <X size={16} />
           </button>
         </div>
       </aside>
@@ -95,16 +112,16 @@ export function HubDeparturesCard({
             aria-label="Minimize stop departures"
             title="Minimize to keep routes visible"
           >
-            <ChevronDown size={15} />
+            <ChevronDown size={16} />
           </button>
           <button
             type="button"
             className="icon-btn"
             onClick={onClose}
             aria-label="Close hub departures"
-            title="Close & clear stop routes"
+            title="Close & clear stop routes (Esc)"
           >
-            <X size={15} />
+            <X size={16} />
           </button>
         </div>
       </div>
@@ -112,20 +129,29 @@ export function HubDeparturesCard({
       {isLoading && departures.length === 0 ? (
         <div className="detail-subline">Loading live departures…</div>
       ) : error ? (
-        <div className="error-banner">{error}</div>
+        <div className="error-banner" role="alert">
+          <span style={{ flex: 1 }}>Could not load departures ({error})</span>
+          {onRetry && (
+            <button type="button" className="retry-btn" onClick={onRetry}>
+              <RotateCw size={12} />
+              Retry
+            </button>
+          )}
+        </div>
       ) : departures.length === 0 ? (
         <div className="detail-subline">No upcoming departures found.</div>
       ) : (
         <div className="departures-list">
           {departures.map((dep, idx) => {
             const color = getRouteColor(dep.mode, dep.lineCode);
+            const badgeStyle = getBadgeStyle(color);
             const delayMin = Math.round(dep.delaySeconds / 60);
             return (
               <div
                 key={`${dep.lineCode}-${dep.aimedTime}-${idx}`}
                 className="departure-row"
               >
-                <span className="departure-badge" style={{ backgroundColor: color }}>
+                <span className="departure-badge" style={badgeStyle}>
                   {dep.lineCode}
                 </span>
                 <div className="departure-info">
@@ -141,7 +167,7 @@ export function HubDeparturesCard({
                     {formatDepartureCountdown(dep.expectedTime) ??
                       formatOsloTime(dep.expectedTime).slice(0, 5)}
                   </div>
-                  <div style={{ fontSize: 10, color: delayMin > 0 ? '#fbbf24' : '#64748b' }}>
+                  <div className={`departure-subtime${delayMin > 0 ? ' delayed' : ''}`}>
                     {formatOsloTime(dep.expectedTime).slice(0, 5)}
                     {delayMin > 0 ? ` · +${delayMin}m` : ''}
                   </div>

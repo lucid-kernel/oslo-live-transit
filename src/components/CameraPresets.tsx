@@ -17,6 +17,7 @@ export function CameraPresets({ activePresetId, onSelectPreset }: CameraPresetsP
         <button
           key={preset.id}
           type="button"
+          aria-pressed={activePresetId === preset.id}
           className={`preset-btn${activePresetId === preset.id ? ' active' : ''}`}
           onClick={() => onSelectPreset(preset)}
         >

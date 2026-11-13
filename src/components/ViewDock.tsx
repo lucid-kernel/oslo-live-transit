@@ -15,22 +15,22 @@ export function ViewDock({ selectedMode, onSelectMode, stats }: ViewDockProps) {
 
   return (
     <nav className="hud-bottom-dock" aria-label="Transit views">
-      <div className="glass-panel view-dock" role="tablist" aria-label="Select map view">
+      <div className="glass-panel view-dock" role="toolbar" aria-label="Select map view">
         <button
           type="button"
-          role="tab"
-          aria-selected={isAll}
+          aria-pressed={isAll}
           className={`view-dock-item${isAll ? ' active' : ''}`}
+          title="All transit modes (Shortcut: 1)"
           onClick={() => onSelectMode('all')}
         >
           <span className="view-dock-icon">
             <Layers size={16} strokeWidth={2.1} color={isAll ? '#38bdf8' : 'currentColor'} />
           </span>
-          <span className="view-dock-label">All</span>
+          <span className="view-dock-label">Alle</span>
           <span className="view-dock-count">{total}</span>
         </button>
 
-        {MODE_ORDER.map((mode) => {
+        {MODE_ORDER.map((mode, idx) => {
           const meta = MODE_META[mode];
           const count = stats?.byMode[mode] ?? 0;
           const isActive = selectedMode === mode;
@@ -39,9 +39,9 @@ export function ViewDock({ selectedMode, onSelectMode, stats }: ViewDockProps) {
             <button
               key={mode}
               type="button"
-              role="tab"
-              aria-selected={isActive}
+              aria-pressed={isActive}
               className={`view-dock-item${isActive ? ' active' : ''}`}
+              title={`${meta.label} (${meta.englishLabel}) · Shortcut: ${idx + 2}`}
               style={
                 isActive
                   ? ({ '--view-accent': meta.color } as React.CSSProperties)

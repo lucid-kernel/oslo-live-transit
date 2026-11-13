@@ -27,8 +27,8 @@ export function HeaderBadge({
       : `${filteredCount} / ${totalVehicles} live`;
 
   const sourceSummary = bySource
-    ? ` · ${bySource.gps} GPS · ${bySource.estimated} Est.`
-    : '';
+    ? `${bySource.gps} GPS · ${bySource.estimated} Est.`
+    : null;
 
   return (
     <header className="glass-panel header-badge">
@@ -38,17 +38,29 @@ export function HeaderBadge({
           <span className={`live-dot${hasError ? ' error' : ''}`} />
         </div>
         <div className="header-title-group">
-          <div className="header-title">Oslo Live Transit</div>
+          <h1 className="header-title">Oslo Live Transit</h1>
           <div className="header-subtitle">
-            {lastUpdated
-              ? `Updated ${formatOsloTime(lastUpdated)}${sourceSummary}`
-              : 'Connecting to Entur…'}
+            <span>
+              {lastUpdated
+                ? `Updated ${formatOsloTime(lastUpdated)}`
+                : 'Connecting to Entur…'}
+            </span>
+            {sourceSummary && (
+              <span
+                className="source-summary-tag"
+                title="Direct SIRI-VM GPS vs. Entur route-interpolated vehicles"
+              >
+                · {sourceSummary}
+              </span>
+            )}
           </div>
         </div>
       </div>
 
       <div className="header-actions">
-        <span className="vehicle-total-pill">{countLabel}</span>
+        <span className="vehicle-total-pill" aria-live="polite">
+          {countLabel}
+        </span>
         <button
           type="button"
           className={`icon-btn${isLoading ? ' spinning' : ''}`}
@@ -56,7 +68,7 @@ export function HeaderBadge({
           title="Refresh live vehicles"
           aria-label="Refresh live vehicles"
         >
-          <RefreshCw size={14} />
+          <RefreshCw size={15} />
         </button>
       </div>
     </header>
