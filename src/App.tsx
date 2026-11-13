@@ -179,6 +179,7 @@ export function App() {
         cameraRequest={cameraRequest}
         onSelectVehicle={handleSelectVehicle}
         onSelectHub={handleSelectHub}
+        onStopFollow={() => setIsFollowing(false)}
         onViewportChange={handleViewportChange}
         onMapReady={() => setMapReady(true)}
       />

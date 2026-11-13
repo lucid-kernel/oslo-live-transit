@@ -44,6 +44,7 @@ interface TransitMapProps {
   cameraRequest: { preset: CameraPreset; seq: number } | null;
   onSelectVehicle: (vehicle: LiveVehicle | null) => void;
   onSelectHub: (hub: OsloHub | null) => void;
+  onStopFollow?: () => void;
   onViewportChange?: (bbox: BoundingBox, zoom: number) => void;
   onMapReady?: () => void;
 }
@@ -80,6 +81,7 @@ export function TransitMap({
   cameraRequest,
   onSelectVehicle,
   onSelectHub,
+  onStopFollow,
   onViewportChange,
   onMapReady,
 }: TransitMapProps) {
@@ -96,6 +98,7 @@ export function TransitMap({
   const currentPosRef = useRef<Map<string, VehicleAnimState>>(new Map());
   const gpsTrackRef = useRef<Map<string, GpsTrackState>>(new Map());
   const followVehicleIdRef = useRef<string | null>(followVehicleId);
+  const userGestureActiveRef = useRef(false);
 
   networkDataRef.current = networkData;
   vehicleJourneyRef.current = vehicleJourney;
@@ -104,10 +107,12 @@ export function TransitMap({
 
   const onSelectVehicleRef = useRef(onSelectVehicle);
   const onSelectHubRef = useRef(onSelectHub);
+  const onStopFollowRef = useRef(onStopFollow);
   const onViewportChangeRef = useRef(onViewportChange);
   const onMapReadyRef = useRef(onMapReady);
   onSelectVehicleRef.current = onSelectVehicle;
   onSelectHubRef.current = onSelectHub;
+  onStopFollowRef.current = onStopFollow;
   onViewportChangeRef.current = onViewportChange;
   onMapReadyRef.current = onMapReady;
 
@@ -155,10 +160,16 @@ export function TransitMap({
       currentPosRef.current = positions;
       syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(activeVehicles, positions));
 
-      if (followVehicleIdRef.current) {
+      if (followVehicleIdRef.current && !userGestureActiveRef.current) {
         const followedPos = positions.get(followVehicleIdRef.current);
         if (followedPos) {
-          map.setCenter([followedPos.lon, followedPos.lat]);
+          const center = map.getCenter();
+          if (
+            Math.abs(center.lng - followedPos.lon) > 1e-6 ||
+            Math.abs(center.lat - followedPos.lat) > 1e-6
+          ) {
+            map.setCenter([followedPos.lon, followedPos.lat]);
+          }
         }
       }
     };
@@ -249,7 +260,18 @@ export function TransitMap({
         );
       };
 
-      map.on('moveend', emitViewport);
+      map.on('movestart', (e) => {
+        if (e.originalEvent) userGestureActiveRef.current = true;
+      });
+      map.on('dragstart', (e) => {
+        if (e.originalEvent && followVehicleIdRef.current) {
+          onStopFollowRef.current?.();
+        }
+      });
+      map.on('moveend', () => {
+        userGestureActiveRef.current = false;
+        emitViewport();
+      });
       mapReadyRef.current = true;
       onMapReadyRef.current?.();
 
