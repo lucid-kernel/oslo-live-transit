@@ -10,6 +10,7 @@ import type {
 } from './types/transit.ts';
 import { HeaderBadge } from './components/HeaderBadge.tsx';
 import { FilterBar } from './components/FilterBar.tsx';
+import { ViewDock } from './components/ViewDock.tsx';
 import { CameraPresets } from './components/CameraPresets.tsx';
 import { VehicleDetailCard } from './components/VehicleDetailCard.tsx';
 import { HubDeparturesCard } from './components/HubDeparturesCard.tsx';
@@ -167,8 +168,10 @@ export function App() {
     setViewport({ bbox, zoom });
   }, []);
 
+  const hasDrawer = Boolean(selectedVehicle || selectedHub);
+
   return (
-    <main className="app-shell">
+    <main className={`app-shell${hasDrawer ? ' has-drawer' : ''}`}>
       <BootScreen
         isVisible={isBooting}
         hasVehicles={hasInitialLoad}
@@ -202,12 +205,10 @@ export function App() {
 
         <FilterBar
           selectedMode={selectedMode}
-          onSelectMode={setSelectedMode}
           selectedRailCategory={selectedRailCategory}
           onSelectRailCategory={setSelectedRailCategory}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          stats={stats}
           networkData={activeMapNetworkData}
           networkLoading={networkLoading}
           busStopsCount={busStops.length}
@@ -226,6 +227,12 @@ export function App() {
       <div className="hud-bottom-left">
         <CameraPresets activePresetId={activePresetId} onSelectPreset={handleSelectPreset} />
       </div>
+
+      <ViewDock
+        selectedMode={selectedMode}
+        onSelectMode={setSelectedMode}
+        stats={stats}
+      />
 
       {selectedVehicle && (
         <div className="hud-right-drawer">

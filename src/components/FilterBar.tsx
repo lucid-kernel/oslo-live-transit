@@ -1,15 +1,13 @@
 import { Search, X } from 'lucide-react';
-import type { NetworkData, RailCategory, TransitMode, VehicleStats } from '../types/transit.ts';
-import { MODE_META, MODE_ORDER, RAIL_CATEGORY_LABELS } from './transitTheme.ts';
+import type { NetworkData, RailCategory, TransitMode } from '../types/transit.ts';
+import { MODE_META, RAIL_CATEGORY_LABELS } from './transitTheme.ts';
 
 interface FilterBarProps {
   selectedMode: TransitMode | 'all';
-  onSelectMode: (mode: TransitMode | 'all') => void;
   selectedRailCategory: RailCategory | 'all';
   onSelectRailCategory: (cat: RailCategory | 'all') => void;
   searchQuery: string;
   onSearchChange: (value: string) => void;
-  stats: VehicleStats | null;
   networkData: NetworkData | null;
   networkLoading: boolean;
   busStopsCount: number;
@@ -21,24 +19,21 @@ const RAIL_CATEGORIES: RailCategory[] = ['local', 'regional', 'long_distance', '
 
 export function FilterBar({
   selectedMode,
-  onSelectMode,
   selectedRailCategory,
   onSelectRailCategory,
   searchQuery,
   onSearchChange,
-  stats,
   networkData,
   networkLoading,
   busStopsCount,
   busStopRoutesCount,
   isBusStopZoomReady,
 }: FilterBarProps) {
-  const total = stats?.total ?? 0;
   const isNetworkMode =
     selectedMode === 'metro' || selectedMode === 'train' || selectedMode === 'tram';
 
   return (
-    <section className="glass-panel filter-panel" aria-label="Transit filters">
+    <section className="glass-panel filter-panel" aria-label="Search and view options">
       <div className="search-box">
         <Search size={14} className="search-icon" />
         <input
@@ -59,40 +54,6 @@ export function FilterBar({
             <X size={12} />
           </button>
         )}
-      </div>
-
-      <div className="mode-pills" role="tablist" aria-label="Filter by transport mode">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={selectedMode === 'all'}
-          className={`mode-pill${selectedMode === 'all' ? ' active' : ''}`}
-          onClick={() => onSelectMode('all')}
-        >
-          <span>All</span>
-          <span className="mode-count">{total}</span>
-        </button>
-
-        {MODE_ORDER.map((mode) => {
-          const meta = MODE_META[mode];
-          const count = stats?.byMode[mode] ?? 0;
-          const isActive = selectedMode === mode;
-
-          return (
-            <button
-              key={mode}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={`mode-pill${isActive ? ' active' : ''}`}
-              onClick={() => onSelectMode(isActive ? 'all' : mode)}
-            >
-              <span className="mode-dot" style={{ backgroundColor: meta.color }} />
-              <span>{meta.label}</span>
-              <span className="mode-count">{count}</span>
-            </button>
-          );
-        })}
       </div>
 
       {selectedMode === 'train' && (
