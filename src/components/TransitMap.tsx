@@ -39,6 +39,7 @@ interface TransitMapProps {
   followVehicleId: string | null;
   selectedHubId: string | null;
   shouldFitStopRoutes?: boolean;
+  searchQuery?: string;
   cameraRequest: { preset: CameraPreset; seq: number } | null;
   onSelectVehicle: (vehicle: LiveVehicle | null) => void;
   onSelectHub: (hub: OsloHub | null) => void;
@@ -97,6 +98,7 @@ export function TransitMap({
   followVehicleId,
   selectedHubId,
   shouldFitStopRoutes = false,
+  searchQuery = '',
   cameraRequest,
   onSelectVehicle,
   onSelectHub,
@@ -114,6 +116,7 @@ export function TransitMap({
   const networkDataRef = useRef<NetworkData | null>(networkData);
   const vehicleJourneyRef = useRef<VehicleJourneyDetails | null>(vehicleJourney);
   const selectedVehicleIdRef = useRef<string | null>(selectedVehicleId);
+  const selectedHubIdRef = useRef<string | null>(selectedHubId);
   const currentPosRef = useRef<Map<string, VehicleAnimState>>(new Map());
   const gpsTrackRef = useRef<Map<string, GpsTrackState>>(new Map());
   const followVehicleIdRef = useRef<string | null>(followVehicleId);
@@ -125,6 +128,7 @@ export function TransitMap({
   networkDataRef.current = networkData;
   vehicleJourneyRef.current = vehicleJourney;
   selectedVehicleIdRef.current = selectedVehicleId;
+  selectedHubIdRef.current = selectedHubId;
   followVehicleIdRef.current = followVehicleId;
 
   const onSelectVehicleRef = useRef(onSelectVehicle);
@@ -507,10 +511,96 @@ export function TransitMap({
   }, [followVehicleId]);
 
   useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) return;
+
+    const timer = window.setTimeout(() => {
+      const map = mapRef.current;
+      if (!map || !mapReadyRef.current) return;
+
+      const matching = vehiclesRef.current;
+      if (matching.length === 0) return;
+
+      const coords: Array<[number, number]> = matching.map((v) => [
+        v.longitude,
+        v.latitude,
+      ]);
+      fitMapToCoordinates(map, coords, {
+        maxZoom: 14.0,
+        duration: 800,
+        hasRightDrawer: Boolean(selectedVehicleIdRef.current || selectedHubIdRef.current),
+      });
+    }, 320);
+
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReadyRef.current) return;
+
     if (map.getLayer('vehicles-selected-ring')) {
       map.setFilter('vehicles-selected-ring', ['==', ['get', 'id'], selectedVehicleId ?? '']);
+    }
+
+    if (selectedVehicleId) {
+      if (map.getLayer('vehicles-halo')) {
+        map.setPaintProperty('vehicles-halo', 'circle-opacity', [
+          'case',
+          ['==', ['get', 'id'], selectedVehicleId],
+          0.34,
+          0.05,
+        ]);
+      }
+      if (map.getLayer('vehicles-body')) {
+        map.setPaintProperty('vehicles-body', 'circle-opacity', [
+          'case',
+          ['==', ['get', 'id'], selectedVehicleId],
+          ['case', ['==', ['get', 'positionSource'], 'estimated'], 0.9, 1],
+          0.2,
+        ]);
+        map.setPaintProperty('vehicles-body', 'circle-stroke-opacity', [
+          'case',
+          ['==', ['get', 'id'], selectedVehicleId],
+          1,
+          0.2,
+        ]);
+      }
+      if (map.getLayer('vehicles-heading')) {
+        map.setPaintProperty('vehicles-heading', 'icon-opacity', [
+          'case',
+          ['==', ['get', 'id'], selectedVehicleId],
+          1,
+          0.18,
+        ]);
+      }
+      if (map.getLayer('vehicles-label')) {
+        map.setPaintProperty('vehicles-label', 'text-opacity', [
+          'case',
+          ['==', ['get', 'id'], selectedVehicleId],
+          1,
+          0.2,
+        ]);
+      }
+    } else {
+      if (map.getLayer('vehicles-halo')) {
+        map.setPaintProperty('vehicles-halo', 'circle-opacity', 0.2);
+      }
+      if (map.getLayer('vehicles-body')) {
+        map.setPaintProperty('vehicles-body', 'circle-opacity', [
+          'case',
+          ['==', ['get', 'positionSource'], 'estimated'],
+          0.82,
+          1,
+        ]);
+        map.setPaintProperty('vehicles-body', 'circle-stroke-opacity', 1);
+      }
+      if (map.getLayer('vehicles-heading')) {
+        map.setPaintProperty('vehicles-heading', 'icon-opacity', 1);
+      }
+      if (map.getLayer('vehicles-label')) {
+        map.setPaintProperty('vehicles-label', 'text-opacity', 1);
+      }
     }
   }, [selectedVehicleId]);
 

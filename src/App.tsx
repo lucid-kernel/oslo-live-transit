@@ -179,6 +179,7 @@ export function App() {
         shouldFitStopRoutes={
           selectedMode === 'bus' && Boolean(selectedHub) && busStopRoutes.length > 0
         }
+        searchQuery={searchQuery}
         cameraRequest={cameraRequest}
         onSelectVehicle={handleSelectVehicle}
         onSelectHub={handleSelectHub}
