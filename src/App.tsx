@@ -11,7 +11,6 @@ import type {
 import { HeaderBadge } from './components/HeaderBadge.tsx';
 import { FilterBar } from './components/FilterBar.tsx';
 import { ViewDock } from './components/ViewDock.tsx';
-import { CameraPresets } from './components/CameraPresets.tsx';
 import { VehicleDetailCard } from './components/VehicleDetailCard.tsx';
 import { HubDeparturesCard } from './components/HubDeparturesCard.tsx';
 import { TransitMap } from './components/TransitMap.tsx';
@@ -158,20 +157,12 @@ export function App() {
     setSelectedHub(hub);
   }, []);
 
-  const handleSelectPreset = useCallback((preset: CameraPreset) => {
-    setIsFollowing(false);
-    setActivePresetId(preset.id);
-    setCameraRequest((prev) => ({ preset, seq: (prev?.seq ?? 0) + 1 }));
-  }, []);
-
   const handleViewportChange = useCallback((bbox: BoundingBox, zoom: number) => {
     setViewport({ bbox, zoom });
   }, []);
 
-  const hasDrawer = Boolean(selectedVehicle || selectedHub);
-
   return (
-    <main className={`app-shell${hasDrawer ? ' has-drawer' : ''}`}>
+    <main className="app-shell">
       <BootScreen
         isVisible={isBooting}
         hasVehicles={hasInitialLoad}
@@ -222,10 +213,6 @@ export function App() {
             <span>{error}</span>
           </div>
         )}
-      </div>
-
-      <div className="hud-bottom-left">
-        <CameraPresets activePresetId={activePresetId} onSelectPreset={handleSelectPreset} />
       </div>
 
       <ViewDock
