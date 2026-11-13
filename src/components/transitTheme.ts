@@ -185,3 +185,13 @@ export function formatOsloTime(isoTimestamp: string): string {
     timeZone: 'Europe/Oslo',
   });
 }
+
+/** Returns a short relative countdown (e.g. "Now", "3m") for departures within 60 minutes. */
+export function formatDepartureCountdown(isoTimestamp: string): string | null {
+  const targetMs = Date.parse(isoTimestamp);
+  if (!Number.isFinite(targetMs)) return null;
+  const diffMin = Math.round((targetMs - Date.now()) / 60_000);
+  if (diffMin <= 0) return 'Now';
+  if (diffMin < 60) return `${diffMin}m`;
+  return null;
+}

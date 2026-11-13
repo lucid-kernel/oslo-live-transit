@@ -38,6 +38,7 @@ interface TransitMapProps {
   selectedVehicleId: string | null;
   followVehicleId: string | null;
   selectedHubId: string | null;
+  shouldFitStopRoutes?: boolean;
   cameraRequest: { preset: CameraPreset; seq: number } | null;
   onSelectVehicle: (vehicle: LiveVehicle | null) => void;
   onSelectHub: (hub: OsloHub | null) => void;
@@ -55,6 +56,38 @@ function syncGeoJsonSource(
   source?.setData(data);
 }
 
+function getHudPadding(hasRightDrawer: boolean): maplibregl.PaddingOptions {
+  if (typeof window !== 'undefined' && window.innerWidth <= 720) {
+    return { top: 132, bottom: 164, left: 28, right: 28 };
+  }
+  return {
+    top: 84,
+    bottom: 92,
+    left: 56,
+    right: hasRightDrawer ? 390 : 56,
+  };
+}
+
+function fitMapToCoordinates(
+  map: maplibregl.Map,
+  coords: Array<[number, number]>,
+  options: { maxZoom: number; duration?: number; hasRightDrawer?: boolean },
+): void {
+  if (coords.length === 0) return;
+  const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+  for (let i = 1; i < coords.length; i++) {
+    bounds.extend(coords[i]);
+  }
+  if (bounds.isEmpty()) return;
+
+  map.fitBounds(bounds, {
+    padding: getHudPadding(options.hasRightDrawer ?? true),
+    maxZoom: options.maxZoom,
+    duration: options.duration ?? 850,
+    essential: true,
+  });
+}
+
 /** Full-screen MapLibre GL JS transit map with continuous vehicle motion and interactive network layers. */
 export function TransitMap({
   vehicles,
@@ -63,6 +96,7 @@ export function TransitMap({
   selectedVehicleId,
   followVehicleId,
   selectedHubId,
+  shouldFitStopRoutes = false,
   cameraRequest,
   onSelectVehicle,
   onSelectHub,
@@ -84,6 +118,9 @@ export function TransitMap({
   const gpsTrackRef = useRef<Map<string, GpsTrackState>>(new Map());
   const followVehicleIdRef = useRef<string | null>(followVehicleId);
   const userGestureActiveRef = useRef(false);
+  const lastFittedJourneyIdRef = useRef<string | null>(null);
+  const lastFittedStopRoutesIdRef = useRef<string | null>(null);
+  const prevFollowVehicleIdRef = useRef<string | null>(null);
 
   networkDataRef.current = networkData;
   vehicleJourneyRef.current = vehicleJourney;
@@ -142,7 +179,7 @@ export function TransitMap({
       currentPosRef.current = positions;
       syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(activeVehicles, positions));
 
-      if (followVehicleIdRef.current && !userGestureActiveRef.current) {
+      if (followVehicleIdRef.current && !userGestureActiveRef.current && !map.isMoving()) {
         const followedPos = positions.get(followVehicleIdRef.current);
         if (followedPos) {
           const center = map.getCenter();
@@ -189,7 +226,17 @@ export function TransitMap({
       map.on('click', 'hubs-circle', (e) => {
         const hubId = e.features?.[0]?.properties?.id as string | undefined;
         const hub = OSLO_HUBS.find((h) => h.id === hubId) ?? null;
-        if (hub) onSelectHubRef.current(hub);
+        if (hub) {
+          onSelectHubRef.current(hub);
+          if (map.getZoom() < 13.0) {
+            map.easeTo({
+              center: [hub.longitude, hub.latitude],
+              zoom: 13.5,
+              duration: 650,
+              essential: true,
+            });
+          }
+        }
       });
 
       map.on('mouseenter', 'network-stops-circle', () => {
@@ -209,6 +256,14 @@ export function TransitMap({
             latitude: stop.lat,
             longitude: stop.lon,
           });
+          if (map.getZoom() < 13.0 && stop.mode !== 'bus') {
+            map.easeTo({
+              center: [stop.lon, stop.lat],
+              zoom: 13.5,
+              duration: 650,
+              essential: true,
+            });
+          }
         }
       });
 
@@ -374,7 +429,82 @@ export function TransitMap({
       buildJourneyLineFeature(vehicleJourney?.remainingCoordinates ?? [], color),
     );
     syncGeoJsonSource(map, 'journey-stops', buildJourneyStopFeatures(vehicleJourney, color));
+
+    if (!selectedVehicleId) {
+      lastFittedJourneyIdRef.current = null;
+      return;
+    }
+
+    if (
+      vehicleJourney &&
+      vehicleJourney.vehicleId === selectedVehicleId &&
+      lastFittedJourneyIdRef.current !== selectedVehicleId &&
+      !followVehicleIdRef.current
+    ) {
+      const routeCoords: Array<[number, number]> = [
+        ...vehicleJourney.pastCoordinates,
+        ...vehicleJourney.remainingCoordinates,
+      ];
+      if (routeCoords.length < 2) {
+        for (const s of [...vehicleJourney.pastStops, ...vehicleJourney.upcomingStops]) {
+          routeCoords.push([s.lon, s.lat]);
+        }
+      }
+      if (routeCoords.length >= 2) {
+        lastFittedJourneyIdRef.current = selectedVehicleId;
+        fitMapToCoordinates(map, routeCoords, {
+          maxZoom: 14.2,
+          duration: 850,
+          hasRightDrawer: true,
+        });
+      }
+    }
   }, [vehicleJourney, selectedVehicleId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReadyRef.current) return;
+
+    if (!selectedHubId || !shouldFitStopRoutes) {
+      if (!selectedHubId) lastFittedStopRoutesIdRef.current = null;
+      return;
+    }
+
+    if (
+      networkData &&
+      networkData.routes.length > 0 &&
+      lastFittedStopRoutesIdRef.current !== selectedHubId
+    ) {
+      const routeCoords = networkData.routes.flatMap((r) => r.coordinates);
+      if (routeCoords.length >= 2) {
+        lastFittedStopRoutesIdRef.current = selectedHubId;
+        fitMapToCoordinates(map, routeCoords, {
+          maxZoom: 13.8,
+          duration: 900,
+          hasRightDrawer: true,
+        });
+      }
+    }
+  }, [networkData, selectedHubId, shouldFitStopRoutes]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const prev = prevFollowVehicleIdRef.current;
+    prevFollowVehicleIdRef.current = followVehicleId;
+
+    if (!map || !mapReadyRef.current || !followVehicleId || followVehicleId === prev) return;
+    const pos = currentPosRef.current.get(followVehicleId);
+    if (!pos) return;
+
+    if (map.getZoom() < 13.6) {
+      map.easeTo({
+        center: [pos.lon, pos.lat],
+        zoom: 14.4,
+        duration: 650,
+        essential: true,
+      });
+    }
+  }, [followVehicleId]);
 
   useEffect(() => {
     const map = mapRef.current;

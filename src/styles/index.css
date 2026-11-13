@@ -1115,4 +1115,9 @@ body,
     width: auto;
     max-height: 44dvh;
   }
+
+  .maplibregl-ctrl-top-right {
+    top: calc(max(10px, env(safe-area-inset-top)) + 114px);
+    right: 4px;
+  }
 }

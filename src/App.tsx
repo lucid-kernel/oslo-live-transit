@@ -176,6 +176,9 @@ export function App() {
         selectedVehicleId={selectedVehicleId}
         followVehicleId={isFollowing ? selectedVehicleId : null}
         selectedHubId={selectedHub?.id ?? null}
+        shouldFitStopRoutes={
+          selectedMode === 'bus' && Boolean(selectedHub) && busStopRoutes.length > 0
+        }
         cameraRequest={cameraRequest}
         onSelectVehicle={handleSelectVehicle}
         onSelectHub={handleSelectHub}

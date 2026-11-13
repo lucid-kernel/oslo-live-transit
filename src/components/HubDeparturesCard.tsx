@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, MapPin, X } from 'lucide-react';
 import type { OsloHub, StopDeparture } from '../types/transit.ts';
-import { formatOsloTime, getRouteColor, MODE_META } from './transitTheme.ts';
+import { formatDepartureCountdown, formatOsloTime, getRouteColor, MODE_META } from './transitTheme.ts';
 
 interface HubDeparturesCardProps {
   hub: OsloHub;
@@ -22,12 +22,18 @@ export function HubDeparturesCard({
   const nextDep = departures[0];
 
   if (isMinimized) {
+    const nextCountdown = nextDep ? formatDepartureCountdown(nextDep.expectedTime) : null;
     return (
       <aside
         className="glass-panel detail-card minimized"
         aria-label={`${hub.name} summary`}
       >
-        <div className="detail-mini-info">
+        <button
+          type="button"
+          className="detail-mini-info detail-mini-trigger"
+          onClick={() => setIsMinimized(false)}
+          aria-label="Expand stop departures"
+        >
           <span
             className="line-badge"
             style={{ backgroundColor: 'rgba(56, 189, 248, 0.18)', minWidth: 32, padding: '0 8px' }}
@@ -38,13 +44,13 @@ export function HubDeparturesCard({
             <span className="detail-mini-dest">{hub.name}</span>
             <span className="detail-mini-meta">
               {nextDep
-                ? `Next: ${nextDep.lineCode} ${nextDep.destination} · ${formatOsloTime(nextDep.expectedTime).slice(0, 5)}`
+                ? `Next: ${nextDep.lineCode} ${nextDep.destination} · ${nextCountdown ?? formatOsloTime(nextDep.expectedTime).slice(0, 5)}`
                 : isLoading
                   ? 'Loading live departures…'
                   : 'No upcoming departures'}
             </span>
           </div>
-        </div>
+        </button>
 
         <div className="detail-header-actions">
           <button
@@ -131,10 +137,14 @@ export function HubDeparturesCard({
                   </span>
                 </div>
                 <div className="departure-time">
-                  <div>{formatOsloTime(dep.expectedTime).slice(0, 5)}</div>
-                  {delayMin > 0 && (
-                    <div style={{ fontSize: 10, color: '#fbbf24' }}>+{delayMin}m</div>
-                  )}
+                  <div>
+                    {formatDepartureCountdown(dep.expectedTime) ??
+                      formatOsloTime(dep.expectedTime).slice(0, 5)}
+                  </div>
+                  <div style={{ fontSize: 10, color: delayMin > 0 ? '#fbbf24' : '#64748b' }}>
+                    {formatOsloTime(dep.expectedTime).slice(0, 5)}
+                    {delayMin > 0 ? ` · +${delayMin}m` : ''}
+                  </div>
                 </div>
               </div>
             );
