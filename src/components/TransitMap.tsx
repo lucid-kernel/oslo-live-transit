@@ -164,11 +164,18 @@ export function TransitMap({
         const followedPos = positions.get(followVehicleIdRef.current);
         if (followedPos) {
           const center = map.getCenter();
-          if (
-            Math.abs(center.lng - followedPos.lon) > 1e-6 ||
-            Math.abs(center.lat - followedPos.lat) > 1e-6
-          ) {
-            map.setCenter([followedPos.lon, followedPos.lat]);
+          const dLng = followedPos.lon - center.lng;
+          const dLat = followedPos.lat - center.lat;
+          const dist = Math.hypot(dLng, dLat);
+
+          if (dist > 1e-6) {
+            // Smoothly glide back after a pinch/zoom; track 1:1 once locked onto the vehicle.
+            if (dist < 1.5e-5) {
+              map.setCenter([followedPos.lon, followedPos.lat]);
+            } else {
+              const alpha = 1 - Math.exp(-8 * dtSec);
+              map.setCenter([center.lng + dLng * alpha, center.lat + dLat * alpha]);
+            }
           }
         }
       }
