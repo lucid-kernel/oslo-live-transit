@@ -1,4 +1,5 @@
-import { MapPin, X } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, MapPin, X } from 'lucide-react';
 import type { OsloHub, StopDeparture } from '../types/transit.ts';
 import { formatOsloTime, getRouteColor, MODE_META } from './transitTheme.ts';
 
@@ -17,6 +18,58 @@ export function HubDeparturesCard({
   error,
   onClose,
 }: HubDeparturesCardProps) {
+  const [isMinimized, setIsMinimized] = useState(false);
+  const nextDep = departures[0];
+
+  if (isMinimized) {
+    return (
+      <aside
+        className="glass-panel detail-card minimized"
+        aria-label={`${hub.name} summary`}
+      >
+        <div className="detail-mini-info">
+          <span
+            className="line-badge"
+            style={{ backgroundColor: 'rgba(56, 189, 248, 0.18)', minWidth: 32, padding: '0 8px' }}
+          >
+            <MapPin size={15} color="#38BDF8" />
+          </span>
+          <div className="detail-mini-text">
+            <span className="detail-mini-dest">{hub.name}</span>
+            <span className="detail-mini-meta">
+              {nextDep
+                ? `Next: ${nextDep.lineCode} ${nextDep.destination} · ${formatOsloTime(nextDep.expectedTime).slice(0, 5)}`
+                : isLoading
+                  ? 'Loading live departures…'
+                  : 'No upcoming departures'}
+            </span>
+          </div>
+        </div>
+
+        <div className="detail-header-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setIsMinimized(false)}
+            aria-label="Expand stop departures"
+            title="Expand departures"
+          >
+            <ChevronUp size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close hub departures"
+            title="Close & clear stop routes"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="glass-panel detail-card" aria-label={`${hub.name} live departures`}>
       <div className="detail-header">
@@ -28,14 +81,26 @@ export function HubDeparturesCard({
           <h2 className="detail-destination">{hub.name}</h2>
           <div className="detail-subline">Live departures via Entur JourneyPlanner</div>
         </div>
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={onClose}
-          aria-label="Close hub departures"
-        >
-          <X size={15} />
-        </button>
+        <div className="detail-header-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setIsMinimized(true)}
+            aria-label="Minimize stop departures"
+            title="Minimize to keep routes visible"
+          >
+            <ChevronDown size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close hub departures"
+            title="Close & clear stop routes"
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
       {isLoading && departures.length === 0 ? (

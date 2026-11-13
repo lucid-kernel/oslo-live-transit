@@ -238,6 +238,7 @@ export function App() {
       {!selectedVehicle && selectedHub && (
         <div className="hud-right-drawer">
           <HubDeparturesCard
+            key={selectedHub.id}
             hub={selectedHub}
             departures={hubDepartures}
             isLoading={hubLoading}
