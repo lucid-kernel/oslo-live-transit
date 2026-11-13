@@ -285,7 +285,50 @@ export function TransitMap({
 
     mapRef.current = map;
 
+    const canvasContainer = map.getCanvasContainer();
+    let wheelIdleTimer: number | null = null;
+
+    const onGestureStart = () => {
+      userGestureActiveRef.current = true;
+    };
+    const onGestureEnd = () => {
+      if (!map.isMoving()) {
+        userGestureActiveRef.current = false;
+      }
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0 && !map.isMoving()) {
+        userGestureActiveRef.current = false;
+      }
+    };
+    const onWheel = () => {
+      userGestureActiveRef.current = true;
+      if (wheelIdleTimer !== null) window.clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = window.setTimeout(() => {
+        wheelIdleTimer = null;
+        if (!map.isMoving()) {
+          userGestureActiveRef.current = false;
+        }
+      }, 250);
+    };
+
+    canvasContainer.addEventListener('pointerdown', onGestureStart, { passive: true, capture: true });
+    canvasContainer.addEventListener('touchstart', onGestureStart, { passive: true, capture: true });
+    canvasContainer.addEventListener('pointerup', onGestureEnd, { passive: true, capture: true });
+    canvasContainer.addEventListener('pointercancel', onGestureEnd, { passive: true, capture: true });
+    canvasContainer.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    canvasContainer.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
+    canvasContainer.addEventListener('wheel', onWheel, { passive: true, capture: true });
+
     return () => {
+      if (wheelIdleTimer !== null) window.clearTimeout(wheelIdleTimer);
+      canvasContainer.removeEventListener('pointerdown', onGestureStart, { capture: true });
+      canvasContainer.removeEventListener('touchstart', onGestureStart, { capture: true });
+      canvasContainer.removeEventListener('pointerup', onGestureEnd, { capture: true });
+      canvasContainer.removeEventListener('pointercancel', onGestureEnd, { capture: true });
+      canvasContainer.removeEventListener('touchend', onTouchEnd, { capture: true });
+      canvasContainer.removeEventListener('touchcancel', onTouchEnd, { capture: true });
+      canvasContainer.removeEventListener('wheel', onWheel, { capture: true });
       if (animFrameId !== null) cancelAnimationFrame(animFrameId);
       mapReadyRef.current = false;
       map.remove();
