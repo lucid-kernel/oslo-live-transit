@@ -1,4 +1,5 @@
-import { Crosshair, Flag, X } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, Crosshair, Flag, X } from 'lucide-react';
 import type { LiveVehicle, VehicleJourneyDetails } from '../types/transit.ts';
 import { ModeIcon } from './ModeIcon.tsx';
 import {
@@ -27,10 +28,66 @@ export function VehicleDetailCard({
   onToggleFollow,
   onClose,
 }: VehicleDetailCardProps) {
+  const [isMinimized, setIsMinimized] = useState(false);
   const color = getVehicleColor(vehicle);
   const modeLabel = MODE_META[vehicle.mode].label;
   const delay = formatDelay(vehicle.delaySeconds);
   const isGps = vehicle.positionSource === 'gps';
+
+  if (isMinimized) {
+    return (
+      <aside
+        className="glass-panel detail-card minimized"
+        aria-label="Selected vehicle summary"
+      >
+        <div className="detail-mini-info">
+          <span className="line-badge" style={{ backgroundColor: color }}>
+            {vehicle.lineCode}
+          </span>
+          <div className="detail-mini-text">
+            <span className="detail-mini-dest">{vehicle.destination}</span>
+            <span className="detail-mini-meta">
+              {vehicle.nextStopName
+                ? `Next: ${vehicle.nextStopName}`
+                : journey?.endStationName
+                  ? `To ${journey.endStationName}`
+                  : modeLabel}
+            </span>
+          </div>
+        </div>
+
+        <div className="detail-header-actions">
+          <button
+            type="button"
+            className={`icon-btn${isFollowing ? ' active' : ''}`}
+            onClick={onToggleFollow}
+            aria-label={isFollowing ? 'Stop following vehicle' : 'Follow vehicle'}
+            title={isFollowing ? 'Following vehicle' : 'Follow vehicle'}
+          >
+            <Crosshair size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setIsMinimized(false)}
+            aria-label="Expand vehicle details"
+            title="Expand details"
+          >
+            <ChevronUp size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close vehicle details"
+            title="Close & clear route"
+          >
+            <X size={15} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="glass-panel detail-card" aria-label="Selected vehicle details">
@@ -55,14 +112,26 @@ export function VehicleDetailCard({
           </span>
         </div>
 
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={onClose}
-          aria-label="Close vehicle details"
-        >
-          <X size={15} />
-        </button>
+        <div className="detail-header-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setIsMinimized(true)}
+            aria-label="Minimize vehicle details"
+            title="Minimize to keep route visible"
+          >
+            <ChevronDown size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close vehicle details"
+            title="Close & clear route"
+          >
+            <X size={15} />
+          </button>
+        </div>
       </div>
 
       <div>

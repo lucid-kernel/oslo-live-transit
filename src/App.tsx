@@ -224,6 +224,7 @@ export function App() {
       {selectedVehicle && (
         <div className="hud-right-drawer">
           <VehicleDetailCard
+            key={selectedVehicle.id}
             vehicle={selectedVehicle}
             journey={vehicleJourney}
             journeyLoading={journeyLoading}
