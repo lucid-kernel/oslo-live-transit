@@ -265,11 +265,21 @@ export function TransitMap({
       });
       map.on('dragstart', (e) => {
         if (e.originalEvent && followVehicleIdRef.current) {
+          didDrag = true;
+        }
+      });
+      map.on('dragend', () => {
+        if (didDrag && !multiTouchGesture && followVehicleIdRef.current) {
           onStopFollowRef.current?.();
         }
+        didDrag = false;
       });
       map.on('moveend', () => {
         userGestureActiveRef.current = false;
+        if (!map.isMoving()) {
+          didDrag = false;
+          multiTouchGesture = false;
+        }
         emitViewport();
       });
       mapReadyRef.current = true;
@@ -287,9 +297,20 @@ export function TransitMap({
 
     const canvasContainer = map.getCanvasContainer();
     let wheelIdleTimer: number | null = null;
+    let didDrag = false;
+    let multiTouchGesture = false;
 
     const onGestureStart = () => {
       userGestureActiveRef.current = true;
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      userGestureActiveRef.current = true;
+      if (e.touches.length >= 2) {
+        multiTouchGesture = true;
+      } else if (e.touches.length === 1) {
+        multiTouchGesture = false;
+        didDrag = false;
+      }
     };
     const onGestureEnd = () => {
       if (!map.isMoving()) {
@@ -299,6 +320,8 @@ export function TransitMap({
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length === 0 && !map.isMoving()) {
         userGestureActiveRef.current = false;
+        multiTouchGesture = false;
+        didDrag = false;
       }
     };
     const onWheel = () => {
@@ -313,7 +336,7 @@ export function TransitMap({
     };
 
     canvasContainer.addEventListener('pointerdown', onGestureStart, { passive: true, capture: true });
-    canvasContainer.addEventListener('touchstart', onGestureStart, { passive: true, capture: true });
+    canvasContainer.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
     canvasContainer.addEventListener('pointerup', onGestureEnd, { passive: true, capture: true });
     canvasContainer.addEventListener('pointercancel', onGestureEnd, { passive: true, capture: true });
     canvasContainer.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
@@ -323,7 +346,7 @@ export function TransitMap({
     return () => {
       if (wheelIdleTimer !== null) window.clearTimeout(wheelIdleTimer);
       canvasContainer.removeEventListener('pointerdown', onGestureStart, { capture: true });
-      canvasContainer.removeEventListener('touchstart', onGestureStart, { capture: true });
+      canvasContainer.removeEventListener('touchstart', onTouchStart, { capture: true });
       canvasContainer.removeEventListener('pointerup', onGestureEnd, { capture: true });
       canvasContainer.removeEventListener('pointercancel', onGestureEnd, { capture: true });
       canvasContainer.removeEventListener('touchend', onTouchEnd, { capture: true });
