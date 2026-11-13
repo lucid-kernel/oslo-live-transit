@@ -52,13 +52,20 @@ export function VehicleDetailCard({
             {vehicle.lineCode}
           </span>
           <div className="detail-mini-text">
-            <span className="detail-mini-dest">{vehicle.destination}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span className="detail-mini-dest">{vehicle.destination}</span>
+              <span className={`source-badge ${vehicle.positionSource}`}>
+                {isGps ? 'GPS' : 'EST'}
+              </span>
+            </div>
             <span className="detail-mini-meta">
+              {modeLabel} · {vehicle.operator} ·{' '}
               {vehicle.nextStopName
                 ? `Next: ${vehicle.nextStopName}`
                 : journey?.endStationName
                   ? `To ${journey.endStationName}`
-                  : modeLabel}
+                  : formatSpeedKmh(vehicle.speed)}
+              {delay.text !== '—' ? ` · ${delay.text}` : ''}
             </span>
           </div>
         </button>

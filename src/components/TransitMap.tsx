@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import type {
   BoundingBox,
@@ -10,10 +10,7 @@ import type {
 } from '../types/transit.ts';
 import { OSLO_CENTER, OSLO_HUBS } from '../services/entur.ts';
 import {
-  formatDelay,
-  formatSpeedKmh,
   getVehicleColor,
-  MODE_META,
   type CameraPreset,
 } from './transitTheme.ts';
 import {
@@ -47,18 +44,6 @@ interface TransitMapProps {
   onStopFollow?: () => void;
   onViewportChange?: (bbox: BoundingBox, zoom: number) => void;
   onMapReady?: () => void;
-}
-
-interface HoveredInfo {
-  vehicle: LiveVehicle;
-  x: number;
-  y: number;
-}
-
-interface HoveredStopInfo {
-  stop: NetworkStop;
-  x: number;
-  y: number;
 }
 
 function syncGeoJsonSource(
@@ -115,9 +100,6 @@ export function TransitMap({
   onStopFollowRef.current = onStopFollow;
   onViewportChangeRef.current = onViewportChange;
   onMapReadyRef.current = onMapReady;
-
-  const [hovered, setHovered] = useState<HoveredInfo | null>(null);
-  const [hoveredStop, setHoveredStop] = useState<HoveredStopInfo | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -185,18 +167,11 @@ export function TransitMap({
       addTransitMapLayers(map);
 
       const vehicleHitLayers = ['vehicles-body', 'vehicles-halo'];
-      map.on('mousemove', vehicleHitLayers, (e) => {
-        const id = e.features?.[0]?.properties?.id as string | undefined;
-        const vehicle = id ? vehiclesByIdRef.current.get(id) : undefined;
-        if (!vehicle) return;
-
+      map.on('mouseenter', vehicleHitLayers, () => {
         map.getCanvas().style.cursor = 'pointer';
-        setHovered({ vehicle, x: e.originalEvent.clientX, y: e.originalEvent.clientY });
       });
-
       map.on('mouseleave', vehicleHitLayers, () => {
         map.getCanvas().style.cursor = '';
-        setHovered(null);
       });
 
       map.on('click', vehicleHitLayers, (e) => {
@@ -217,18 +192,11 @@ export function TransitMap({
         if (hub) onSelectHubRef.current(hub);
       });
 
-      map.on('mousemove', 'network-stops-circle', (e) => {
-        const stopId = e.features?.[0]?.properties?.id as string | undefined;
-        const stop = stopId ? networkStopsByIdRef.current.get(stopId) : undefined;
-        if (!stop) return;
-
+      map.on('mouseenter', 'network-stops-circle', () => {
         map.getCanvas().style.cursor = 'pointer';
-        setHoveredStop({ stop, x: e.originalEvent.clientX, y: e.originalEvent.clientY });
       });
-
       map.on('mouseleave', 'network-stops-circle', () => {
         map.getCanvas().style.cursor = '';
-        setHoveredStop(null);
       });
 
       map.on('click', 'network-stops-circle', (e) => {
@@ -443,64 +411,5 @@ export function TransitMap({
     });
   }, [cameraRequest]);
 
-  const hoveredColor = hovered ? getVehicleColor(hovered.vehicle) : '#EF4444';
-  const hoveredDelay = hovered ? formatDelay(hovered.vehicle.delaySeconds) : null;
-
-  return (
-    <>
-      <div ref={containerRef} className="map-container" />
-
-      {hovered && (
-        <div
-          className="vehicle-tooltip"
-          style={{ left: hovered.x, top: hovered.y }}
-          role="status"
-        >
-          <div className="tooltip-top">
-            <span className="tooltip-line" style={{ backgroundColor: hoveredColor }}>
-              {hovered.vehicle.lineCode}
-            </span>
-            <span className={`source-badge ${hovered.vehicle.positionSource}`}>
-              {hovered.vehicle.positionSource === 'gps' ? 'GPS' : 'EST'}
-            </span>
-            <span className="tooltip-operator">
-              {MODE_META[hovered.vehicle.mode].label} · {hovered.vehicle.operator}
-            </span>
-          </div>
-          <div className="tooltip-dest">{hovered.vehicle.destination}</div>
-          <div className="tooltip-stats">
-            {hovered.vehicle.nextStopName
-              ? `Next: ${hovered.vehicle.nextStopName}`
-              : formatSpeedKmh(hovered.vehicle.speed)}
-            {hoveredDelay && hoveredDelay.text !== '—' ? ` · ${hoveredDelay.text}` : ''}
-          </div>
-        </div>
-      )}
-
-      {!hovered && hoveredStop && (
-        <div
-          className="vehicle-tooltip"
-          style={{ left: hoveredStop.x, top: hoveredStop.y }}
-          role="status"
-        >
-          <div className="tooltip-top">
-            <span
-              className="tooltip-line"
-              style={{ backgroundColor: MODE_META[hoveredStop.stop.mode].color }}
-            >
-              {MODE_META[hoveredStop.stop.mode].label}
-            </span>
-            <span className="tooltip-operator">Station / Stop</span>
-          </div>
-          <div className="tooltip-dest">{hoveredStop.stop.name}</div>
-          <div className="tooltip-stats">
-            {hoveredStop.stop.lines?.length
-              ? `Lines: ${hoveredStop.stop.lines.join(', ')} · `
-              : ''}
-            Click for live departures
-          </div>
-        </div>
-      )}
-    </>
-  );
+  return <div ref={containerRef} className="map-container" />;
 }
