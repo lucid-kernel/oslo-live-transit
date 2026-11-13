@@ -28,7 +28,9 @@ export function VehicleDetailCard({
   onToggleFollow,
   onClose,
 }: VehicleDetailCardProps) {
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
+  );
   const color = getVehicleColor(vehicle);
   const modeLabel = MODE_META[vehicle.mode].label;
   const delay = formatDelay(vehicle.delaySeconds);
@@ -40,7 +42,12 @@ export function VehicleDetailCard({
         className="glass-panel detail-card minimized"
         aria-label="Selected vehicle summary"
       >
-        <div className="detail-mini-info">
+        <button
+          type="button"
+          className="detail-mini-info detail-mini-trigger"
+          onClick={() => setIsMinimized(false)}
+          aria-label="Expand vehicle details"
+        >
           <span className="line-badge" style={{ backgroundColor: color }}>
             {vehicle.lineCode}
           </span>
@@ -54,7 +61,7 @@ export function VehicleDetailCard({
                   : modeLabel}
             </span>
           </div>
-        </div>
+        </button>
 
         <div className="detail-header-actions">
           <button
