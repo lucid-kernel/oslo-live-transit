@@ -39,6 +39,7 @@ const STOP_DEPARTURES_QUERY = `
       id
       name
       estimatedCalls(numberOfDepartures: $numberOfDepartures) {
+        actualDepartureTime
         realtime
         aimedDepartureTime
         expectedDepartureTime
@@ -491,6 +492,7 @@ export async function fetchStopDepartures(
       name: string;
       estimatedCalls: Array<{
         realtime: boolean;
+        actualDepartureTime?: string | null;
         aimedDepartureTime: string;
         expectedDepartureTime: string;
         destinationDisplay: { frontText?: string | null } | null;
@@ -516,7 +518,8 @@ export async function fetchStopDepartures(
 
   return (stopPlace.estimatedCalls ?? []).map((call) => {
     const aimedMs = Date.parse(call.aimedDepartureTime);
-    const expectedMs = Date.parse(call.expectedDepartureTime);
+    const expectedTime = call.actualDepartureTime ?? call.expectedDepartureTime;
+    const expectedMs = Date.parse(expectedTime);
     const delaySeconds =
       Number.isFinite(aimedMs) && Number.isFinite(expectedMs)
         ? Math.round((expectedMs - aimedMs) / 1000)
@@ -533,7 +536,7 @@ export async function fetchStopDepartures(
       mode: mapVehicleMode(line?.transportMode),
       destination: call.destinationDisplay?.frontText ?? 'Unknown',
       aimedTime: call.aimedDepartureTime,
-      expectedTime: call.expectedDepartureTime,
+      expectedTime,
       delaySeconds,
       realtime: Boolean(call.realtime),
       platform: call.quay?.publicCode ?? null,

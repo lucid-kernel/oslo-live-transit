@@ -29,14 +29,15 @@ export function HubDeparturesCard({
   const [isMinimized, setIsMinimized] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
   );
-  const [, setNowTick] = useState(() => Date.now());
+  const [nowMs, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
-    const id = window.setInterval(() => setNowTick(Date.now()), 15_000);
+    const id = window.setInterval(() => setNowTick(Date.now()), 1_000);
     return () => window.clearInterval(id);
   }, []);
 
-  const nextDep = departures[0];
+  const upcoming = departures.filter((dep) => Date.parse(dep.expectedTime) >= nowMs);
+  const nextDep = upcoming[0];
 
   if (isMinimized) {
     const nextCountdown = nextDep ? formatDepartureCountdown(nextDep.expectedTime) : null;
@@ -126,7 +127,7 @@ export function HubDeparturesCard({
         </div>
       </div>
 
-      {isLoading && departures.length === 0 ? (
+      {isLoading && upcoming.length === 0 ? (
         <div className="detail-subline">Loading live departures…</div>
       ) : error ? (
         <div className="error-banner" role="alert">
@@ -138,11 +139,11 @@ export function HubDeparturesCard({
             </button>
           )}
         </div>
-      ) : departures.length === 0 ? (
+      ) : upcoming.length === 0 ? (
         <div className="detail-subline">No upcoming departures found.</div>
       ) : (
         <div className="departures-list">
-          {departures.map((dep, idx) => {
+          {upcoming.map((dep, idx) => {
             const color = getRouteColor(dep.mode, dep.lineCode);
             const badgeStyle = getBadgeStyle(color);
             const delayMin = Math.round(dep.delaySeconds / 60);

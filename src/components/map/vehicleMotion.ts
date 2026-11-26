@@ -103,6 +103,14 @@ export function stepVehiclePositions(
     if (v.positionSource === 'estimated') {
       const updated = estimatedById.get(v.id) ?? v;
       vehiclesById.set(v.id, updated);
+      if ((v.mode === 'bus' || v.mode === 'metro') && updated.speed === 0) {
+        positions.set(v.id, {
+          lon: updated.longitude,
+          lat: updated.latitude,
+          bearing: updated.bearing ?? targetBearing,
+        });
+        continue;
+      }
       targetLon = updated.longitude;
       targetLat = updated.latitude;
       targetBearing = updated.bearing ?? targetBearing;

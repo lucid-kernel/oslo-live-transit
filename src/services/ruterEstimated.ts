@@ -13,6 +13,7 @@ import {
   type LngLat,
 } from './geo.ts';
 
+const TARGET_DWELL_MS = 20_000;
 const ESTIMATED_REFRESH_MS = 20_000;
 
 const FALLBACK_RUTER_STOP_IDS = [
@@ -85,6 +86,10 @@ const RUTER_ACTIVE_JOURNEYS_QUERY = `
             }
           }
           estimatedCalls {
+            cancellation
+            timingPoint
+            actualArrivalTime
+            actualDepartureTime
             realtime
             aimedArrivalTime
             aimedDepartureTime
@@ -107,6 +112,10 @@ const RUTER_ACTIVE_JOURNEYS_QUERY = `
 `;
 
 interface RawJourneyCall {
+  cancellation?: boolean;
+  timingPoint?: boolean;
+  actualArrivalTime?: string | null;
+  actualDepartureTime?: string | null;
   realtime: boolean;
   aimedArrivalTime?: string | null;
   aimedDepartureTime?: string | null;
@@ -294,18 +303,22 @@ async function getRuterDiscoveryStopIds(
   return discoveryStopIdsPromise;
 }
 
-function parseServiceJourney(sj: RawServiceJourney): CachedJourney | null {
+function parseServiceJourney(sj: RawServiceJourney, nowMs: number): CachedJourney | null {
   if (sj.line?.authority?.id !== 'RUT:Authority:RUT') return null;
 
   const mode = mapVehicleMode(sj.line?.transportMode);
   if (mode === 'train') return null; // Trains already have live GPS
 
+  const modelDwell = mode === 'bus' || mode === 'metro';
   const calls: CachedCall[] = [];
   for (const c of sj.estimatedCalls ?? []) {
+    if (modelDwell && (c.cancellation || c.timingPoint)) continue;
     const lat = c.quay?.latitude;
     const lon = c.quay?.longitude;
-    const arrStr = c.expectedArrivalTime ?? c.expectedDepartureTime;
-    const depStr = c.expectedDepartureTime ?? c.expectedArrivalTime;
+    const arrival = modelDwell ? c.actualArrivalTime ?? c.expectedArrivalTime : c.expectedArrivalTime;
+    const departure = modelDwell ? c.actualDepartureTime ?? c.expectedDepartureTime : c.expectedDepartureTime;
+    const arrStr = arrival ?? departure;
+    const depStr = departure ?? arrival;
     if (typeof lat !== 'number' || typeof lon !== 'number' || !arrStr || !depStr) {
       continue;
     }
@@ -329,6 +342,26 @@ function parseServiceJourney(sj: RawServiceJourney): CachedJourney | null {
   }
 
   if (calls.length < 2) return null;
+
+  const first = calls[0];
+  const last = calls[calls.length - 1];
+  if (modelDwell) {
+    const previousStop = cachedJourneyMap.get(sj.id)?.calls.find(
+      (call) => call.arrivalMs <= nowMs && nowMs <= call.departureMs,
+    );
+    for (let i = 0; i < calls.length - 1; i++) {
+      const call = calls[i];
+      // Reserve travel time on short legs while keeping the live departure fixed.
+      const gap = i === 0 ? Infinity : call.departureMs - calls[i - 1].departureMs;
+      const dwell = Math.min(TARGET_DWELL_MS, Math.max(0, gap / 2));
+      call.arrivalMs = Math.min(call.arrivalMs, call.departureMs - dwell);
+      // A revised departure can extend a stop the marker has already reached.
+      if (previousStop && previousStop.aimedMs === call.aimedMs &&
+          previousStop.lat === call.lat && previousStop.lon === call.lon) {
+        call.arrivalMs = Math.min(call.arrivalMs, previousStop.arrivalMs);
+      }
+    }
+  }
 
   const patternId = sj.journeyPattern?.id ?? '';
   const encoded = sj.journeyPattern?.pointsOnLink?.points ?? '';
@@ -354,8 +387,8 @@ function parseServiceJourney(sj: RawServiceJourney): CachedJourney | null {
     destination,
     polyline,
     calls,
-    startMs: calls[0].departureMs,
-    endMs: calls[calls.length - 1].arrivalMs,
+    startMs: modelDwell ? first.arrivalMs : first.departureMs,
+    endMs: modelDwell ? Math.max(last.departureMs, last.arrivalMs + TARGET_DWELL_MS) : last.arrivalMs,
   };
 }
 
@@ -381,7 +414,7 @@ async function refreshRuterJourneys(bbox: BoundingBox): Promise<void> {
         if (!sj || seen.has(sj.id)) continue;
         seen.add(sj.id);
 
-        const parsed = parseServiceJourney(sj);
+        const parsed = parseServiceJourney(sj, nowMs);
         if (parsed) cachedJourneyMap.set(parsed.id, parsed);
       }
     }
@@ -454,7 +487,7 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
       const curr = calls[i];
       const next = calls[i + 1];
 
-      if (nowMs >= curr.arrivalMs && nowMs <= curr.departureMs) {
+      if (nowMs >= curr.arrivalMs && nowMs <= (next ? curr.departureMs : journey.endMs)) {
         vehicles.push({
           id: `est:${journey.id}`,
           mode: journey.mode,
