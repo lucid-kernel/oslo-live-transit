@@ -1,3 +1,5 @@
+import { locales, number } from '../i18n/language.ts';
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent, type RefObject } from 'react';
 import { ListFilter, MapPin, Search, X } from 'lucide-react';
 import type { LiveVehicle, NetworkData, OsloHub, RailCategory, TransitMode } from '../types/transit.ts';
@@ -6,8 +8,6 @@ import {
   formatDelay,
   getBadgeStyle,
   getVehicleColor,
-  MODE_META,
-  RAIL_CATEGORY_LABELS,
 } from './transitTheme.ts';
 
 interface FilterBarProps {
@@ -56,6 +56,7 @@ export function FilterBar({
   busStopRoutesCount,
   isBusStopZoomReady,
 }: FilterBarProps) {
+  const { m, language } = useLanguage();
   const [isListToggled, setIsListToggled] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -73,11 +74,11 @@ export function FilterBar({
     const limit = q ? 6 : 8;
     return [...filteredVehicles]
       .sort((a, b) =>
-        a.lineCode.localeCompare(b.lineCode, 'nb', { numeric: true }) ||
-        a.destination.localeCompare(b.destination, 'nb'),
+        a.lineCode.localeCompare(b.lineCode, locales[language], { numeric: true }) ||
+        a.destination.localeCompare(b.destination, locales[language]),
       )
       .slice(0, limit);
-  }, [filteredVehicles, q]);
+  }, [filteredVehicles, q, language]);
 
   const resultEntries = useMemo<SearchResultEntry[]>(() => {
     const items: SearchResultEntry[] = [];
@@ -160,7 +161,7 @@ export function FilterBar({
   return (
     <section
       className="glass-panel filter-panel"
-      aria-label="Search and view options"
+      aria-label={m.searchOptions}
       onBlur={handleContainerBlur}
     >
       <div className="search-row">
@@ -174,8 +175,8 @@ export function FilterBar({
             onFocus={() => setIsInputFocused(true)}
             onChange={(e) => onSearchChange(e.target.value)}
             onKeyDown={handleInputKeyDown}
-            placeholder="Search line, stop, or destination… ( / )"
-            aria-label="Search by line number, stop, destination, or operator"
+            placeholder={m.searchPlaceholder}
+            aria-label={m.searchLabel}
             aria-expanded={isDropdownOpen}
             aria-controls="transit-search-results"
             aria-activedescendant={activeEntry ? `search-opt-${activeEntry.key}` : undefined}
@@ -190,8 +191,8 @@ export function FilterBar({
                 onSearchChange('');
                 searchInputRef?.current?.focus();
               }}
-              aria-label="Clear search"
-              title="Clear search"
+              aria-label={m.clearSearch}
+              title={m.clearSearch}
             >
               <X size={14} />
             </button>
@@ -203,8 +204,8 @@ export function FilterBar({
           className={`icon-btn search-list-toggle${isListToggled ? ' active' : ''}`}
           onClick={() => setIsListToggled((prev) => !prev)}
           aria-expanded={isDropdownOpen}
-          aria-label="Browse live vehicles and hubs list"
-          title="Browse live vehicles & hubs"
+          aria-label={m.browse}
+          title={m.browseTitle}
         >
           <ListFilter size={15} />
         </button>
@@ -215,7 +216,7 @@ export function FilterBar({
           id="transit-search-results"
           className="search-results-panel"
           role="listbox"
-          aria-label="Matching hubs and live vehicles"
+          aria-label={m.matches}
         >
           {resultEntries.map((entry, idx) => {
             const isActive = idx === activeIndex;
@@ -236,7 +237,7 @@ export function FilterBar({
                   </span>
                   <span className="search-result-main">
                     <span className="search-result-title">{entry.hub.name}</span>
-                    <span className="search-result-meta">Hub · Live departures</span>
+                    <span className="search-result-meta">{m.hubLive}</span>
                   </span>
                 </button>
               );
@@ -245,7 +246,7 @@ export function FilterBar({
             const v = entry.vehicle;
             const color = getVehicleColor(v);
             const badgeStyle = getBadgeStyle(color);
-            const delay = formatDelay(v.delaySeconds);
+            const delay = formatDelay(v.delaySeconds, language);
 
             return (
               <button
@@ -262,12 +263,12 @@ export function FilterBar({
                   {v.lineCode}
                 </span>
                 <span className="search-result-main">
-                  <span className="search-result-title">{v.destination}</span>
+                  <span className="search-result-title">{v.destination || m.inService}</span>
                   <span className="search-result-meta">
                     <ModeIcon mode={v.mode} size={11} color={color} />
-                    <span>{MODE_META[v.mode].label}</span>
-                    <span>· {v.operator}</span>
-                    {v.nextStopName ? ` · Next: ${v.nextStopName}` : ''}
+                    <span>{m[v.mode]}</span>
+                    <span>· {v.operator || m.unknownOperator}</span>
+                    {v.nextStopName ? ` · ${m.next(v.nextStopName)}` : ''}
                   </span>
                 </span>
                 {delay.text !== '—' && (
@@ -283,13 +284,13 @@ export function FilterBar({
         <div className="empty-state-card" role="status" aria-live="polite">
           <div className="empty-state-title">
             {allMatchingCount > 0 && selectedMode !== 'all'
-              ? `No '${searchQuery.trim()}' vehicles in ${MODE_META[selectedMode].label} (${MODE_META[selectedMode].englishLabel})`
-              : `No active vehicles match '${searchQuery.trim()}'`}
+              ? m.noInMode(searchQuery.trim(), m[selectedMode])
+              : m.noMatches(searchQuery.trim())}
           </div>
           <div className="empty-state-actions">
             {allMatchingCount > 0 && selectedMode !== 'all' && (
               <button type="button" className="empty-action-primary" onClick={onResetMode}>
-                Show {allMatchingCount} across all modes
+                {m.showAll(number(allMatchingCount, language))}
               </button>
             )}
             <button
@@ -297,7 +298,7 @@ export function FilterBar({
               className="empty-action-secondary"
               onClick={() => onSearchChange('')}
             >
-              Clear search
+              {m.clearSearch}
             </button>
           </div>
           {allMatchingCount === 0 && (
@@ -318,14 +319,14 @@ export function FilterBar({
       )}
 
       {selectedMode === 'train' && (
-        <div className="mode-pills" role="group" aria-label="Filter by rail category">
+        <div className="mode-pills" role="group" aria-label={m.railFilter}>
           <button
             type="button"
             aria-pressed={selectedRailCategory === 'all'}
             className={`mode-pill${selectedRailCategory === 'all' ? ' active' : ''}`}
             onClick={() => onSelectRailCategory('all')}
           >
-            All Rail
+            {m.allRail}
           </button>
           {RAIL_CATEGORIES.map((cat) => (
             <button
@@ -337,7 +338,7 @@ export function FilterBar({
                 onSelectRailCategory(selectedRailCategory === cat ? 'all' : cat)
               }
             >
-              {RAIL_CATEGORY_LABELS[cat]}
+              {m[cat]}
             </button>
           ))}
         </div>
@@ -347,13 +348,13 @@ export function FilterBar({
         <div className="filter-status-bar">
           <span>
             {networkLoading
-              ? `Loading ${MODE_META[selectedMode].label} network & stops…`
+              ? m.networkLoading(m[selectedMode])
               : networkData
-                ? `${selectedMode === 'train' ? 'Norway' : MODE_META[selectedMode].label} Network: ${networkData.routes.length} lines · ${networkData.stops.length} stops`
-                : `${MODE_META[selectedMode].label} Network`}
+                ? m.networkDetails(selectedMode === 'train' ? m.nationalRail : m[selectedMode], m.lineCount(networkData.routes.length), m.stopCount(networkData.stops.length))
+                : m.network(m[selectedMode])}
           </span>
           {!networkLoading && networkData && (
-            <span className="filter-status-hint">Select stop for departures</span>
+            <span className="filter-status-hint">{m.selectDepartures}</span>
           )}
         </div>
       )}
@@ -362,13 +363,13 @@ export function FilterBar({
         <div className="filter-status-bar">
           <span>
             {!isBusStopZoomReady
-              ? 'Zoom in to see bus stops & stop routes'
+              ? m.zoomBus
               : busStopRoutesCount > 0
-                ? `Showing ${busStopRoutesCount} routes through selected stop`
-                : `${busStopsCount} bus stops in view`}
+                ? m.stopRoutes(busStopRoutesCount)
+                : m.busStopCount(busStopsCount)}
           </span>
           {isBusStopZoomReady && busStopsCount > 0 && busStopRoutesCount === 0 && (
-            <span className="filter-status-hint">Select stop to see routes</span>
+            <span className="filter-status-hint">{m.selectRoutes}</span>
           )}
         </div>
       )}

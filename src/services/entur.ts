@@ -147,7 +147,7 @@ function resolveOperatorName(raw: RawVehicle): string {
   if (cs && CODESPACE_OPERATOR_NAMES[cs]) {
     return CODESPACE_OPERATOR_NAMES[cs];
   }
-  return cs || 'Unknown operator';
+  return cs;
 }
 
 /** Computes aggregate counts by transit mode and position source. */
@@ -229,7 +229,7 @@ async function fetchGpsVehicles(
       lineCode,
       lineColor: readLineColor(raw.line?.presentation),
       lineName: raw.line?.lineName ?? lineCode,
-      destination: raw.destinationName || 'In service',
+      destination: raw.destinationName ?? '',
       origin: raw.originName ?? null,
       operator: resolveOperatorName(raw),
       codespace: raw.codespace?.codespaceId ?? '',

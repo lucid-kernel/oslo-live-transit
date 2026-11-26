@@ -1,13 +1,15 @@
+import { bikeAvailability, messages, type Language } from '../../i18n/language.ts';
 import type maplibregl from 'maplibre-gl';
 import type { AvailableScooter, BikeStation, DisruptedStop, StopNotice } from '../../types/transit.ts';
 import { approxDistKm } from '../../services/geo.ts';
-import { bikeAvailability, SCOOTER_MIN_ZOOM } from '../../services/sharedMobility.ts';
+import { SCOOTER_MIN_ZOOM } from '../../services/sharedMobility.ts';
 import type { PointFeature, PointFeatureCollection } from './geojson.ts';
 
 export const BIKE_MIN_ZOOM = 13;
 export const LOCAL_LAYERS = ['bike-stations', 'available-scooters', 'stop-notices'];
 
-function noticeOverviews(stops: DisruptedStop[]): PointFeature[] {
+function noticeOverviews(stops: DisruptedStop[], language: Language): PointFeature[] {
+  const m = messages[language];
   const groups = new Map<string, { notice: StopNotice; stops: DisruptedStop[] }>();
   for (const stop of stops) {
     for (const notice of stop.notices) {
@@ -29,13 +31,13 @@ function noticeOverviews(stops: DisruptedStop[]): PointFeature[] {
       type: 'Feature', geometry: { type: 'Point', coordinates: [anchor.longitude, anchor.latitude] },
       properties: {
         kind: 'notice-overview', id: notice.id, label: notice.summary,
-        detail: [notice.detail, `${count} linked ${count === 1 ? 'stop' : 'stops'}. Zoom in for stop details.`].filter(Boolean).join(' '),
+        detail: [notice.detail, m.linkedStops(m.linkedCount(count))].filter(Boolean).join(' '),
       },
     };
   });
 }
 
-export function localFeatures(bikes: BikeStation[], scooters: AvailableScooter[], stops: DisruptedStop[], showStops = false): PointFeatureCollection {
+export function localFeatures(bikes: BikeStation[], scooters: AvailableScooter[], stops: DisruptedStop[], showStops: boolean, language: Language): PointFeatureCollection {
   function point(lon: number, lat: number, properties: PointFeature['properties']): PointFeature {
     return { type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat] }, properties };
   }
@@ -44,22 +46,22 @@ export function localFeatures(bikes: BikeStation[], scooters: AvailableScooter[]
     features: [
       ...bikes.map(b => point(b.lon, b.lat, {
         kind: 'bike-stations', id: b.id, label: b.name,
-        detail: bikeAvailability(b), bikes: b.bikes, docks: b.docks,
+        detail: bikeAvailability(b, language), bikes: b.bikes, docks: b.docks,
         ...(b.capacity !== undefined && { capacity: b.capacity }),
       })),
       ...scooters.map(s => point(s.lon, s.lat, {
-        kind: 'available-scooters', id: s.id, label: `${s.operator} scooter`, detail: 'Available for pickup',
+        kind: 'available-scooters', id: s.id, label: messages[language].operatorScooter(s.operator), detail: messages[language].pickup,
       })),
       ...(showStops ? stops.map(s => point(s.longitude, s.latitude, {
         kind: 'stop-notices', id: s.id, label: s.name,
-      })) : noticeOverviews(stops)),
+      })) : noticeOverviews(stops, language)),
     ],
   };
 }
 
 export function addLocalLayers(map: maplibregl.Map) {
   map.addSource('local-layers', {
-    type: 'geojson', data: localFeatures([], [], []),
+    type: 'geojson', data: { type: 'FeatureCollection', features: [] },
     attribution: '<a href="https://oslobysykkel.no/apne-data">Oslo Bysykkel</a> · <a href="https://entur.org/">Entur</a> · Ruter · Voi · Bolt · Ryde',
   });
   const notices: maplibregl.FilterSpecification = ['in', ['get', 'kind'], ['literal', ['stop-notices', 'notice-overview']]];

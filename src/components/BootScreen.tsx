@@ -1,3 +1,4 @@
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useState } from 'react';
 import { MODE_META, MODE_ORDER } from './transitTheme.ts';
 
@@ -8,13 +9,14 @@ interface BootScreenProps {
 }
 
 const BOOT_DOTS = MODE_ORDER.map((mode, idx) => ({
-  label: MODE_META[mode].label,
+  mode,
   color: MODE_META[mode].color,
   delayMs: idx * 140,
 }));
 
 /** Full-screen loading overlay that fades out once the map and initial Entur live feed are ready. */
 export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps) {
+  const { m } = useLanguage();
   const [elapsedPhase, setElapsedPhase] = useState(false);
 
   useEffect(() => {
@@ -23,13 +25,13 @@ export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps
     return () => window.clearTimeout(timer);
   }, [isVisible]);
 
-  let statusText = 'Connecting to Entur live feeds…';
+  let statusText = m.bootConnecting;
   if (!mapReady) {
-    statusText = 'Initializing Oslo vector map…';
+    statusText = m.bootMap;
   } else if (hasVehicles) {
-    statusText = 'Oslo live network ready';
+    statusText = m.bootReady;
   } else if (elapsedPhase) {
-    statusText = 'Mapping Oslo Buss, Trikk, T-bane, Tog & Båt…';
+    statusText = m.bootMapping;
   }
 
   return (
@@ -53,7 +55,7 @@ export function BootScreen({ isVisible, hasVehicles, mapReady }: BootScreenProps
       <div className="boot-dots" aria-hidden="true">
         {BOOT_DOTS.map((dot) => (
           <span
-            key={dot.label}
+            key={dot.mode}
             className="boot-mode-dot"
             style={{
               backgroundColor: dot.color,

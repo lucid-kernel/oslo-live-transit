@@ -1,3 +1,4 @@
+import { locales, messages, type Language } from '../i18n/language.ts';
 import type { DisruptedStop, OsloHub, TransitMode } from '../types/transit.ts';
 import { JOURNEY_PLANNER_ENDPOINT, postGraphQL } from './enturClient.ts';
 
@@ -39,8 +40,20 @@ const QUERY = `
     }
   }`;
 
-function messageText(messages: Message[]) {
-  return (messages.find(m => m.language === 'en') ?? messages[0])?.value.trim() ?? '';
+function messageText(variants: Message[], language: Language) {
+  const available = variants.filter(item => item.value.trim());
+  const base = (item: Message) => item.language?.toLowerCase().split('-')[0];
+  const preferred = available.find(item => base(item) === language)
+    ?? (language === 'nb' ? available.find(item => base(item) === 'no') : undefined);
+  if (preferred) return preferred.value.trim();
+  const original = available[0];
+  if (!original) return '';
+  const m = messages[language];
+  let name = original.language || m.unknownLanguage;
+  try {
+    name = new Intl.DisplayNames(locales[language], { type: 'language' }).of(name) || name;
+  } catch { /* A provider can send a non-standard language code. */ }
+  return m.original(name, original.value.trim());
 }
 
 export async function fetchStopSituations(signal: AbortSignal): Promise<Situation[]> {
@@ -50,7 +63,7 @@ export async function fetchStopSituations(signal: AbortSignal): Promise<Situatio
   return situations;
 }
 
-export function disruptedStopsForMode(situations: Situation[], selectedMode: TransitMode | 'all'): DisruptedStop[] {
+export function disruptedStopsForMode(situations: Situation[], selectedMode: TransitMode | 'all', language: Language): DisruptedStop[] {
   const stops = new Map<string, DisruptedStop>();
   const now = Date.now();
   for (const situation of situations) {
@@ -58,8 +71,8 @@ export function disruptedStopsForMode(situations: Situation[], selectedMode: Tra
     if (periods.length && !periods.some(p =>
       (!p.startTime || Date.parse(p.startTime) <= now) && (!p.endTime || now < Date.parse(p.endTime)),
     )) continue;
-    const summary = messageText(situation.summary) || 'Service notice';
-    const detail = [...new Set([messageText(situation.description), messageText(situation.advice)])]
+    const summary = messageText(situation.summary, language) || messages[language].notice;
+    const detail = [...new Set([messageText(situation.description, language), messageText(situation.advice, language)])]
       .filter(text => text && text !== summary).join(' ');
 
     for (const affect of situation.affects) {

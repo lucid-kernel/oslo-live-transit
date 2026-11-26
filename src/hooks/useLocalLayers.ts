@@ -1,3 +1,4 @@
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useMemo, useState } from 'react';
 import type { BoundingBox, OsloHub, TransitMode } from '../types/transit.ts';
 import { approxDistKm } from '../services/geo.ts';
@@ -12,6 +13,7 @@ export function useLayerPreferences() {
 }
 
 export function useLocalLayers(viewport: { bbox: BoundingBox; zoom: number } | null, hub: OsloHub | null, selectedMode: TransitMode | 'all', preferences: ReturnType<typeof useLayerPreferences>) {
+  const { language } = useLanguage();
   const [enabled, setEnabled] = preferences;
   const bikes = useLayerFeed(enabled.bikes ? fetchBikeStations : null, 30_000);
   const notices = useLayerFeed(enabled.notices ? fetchStopSituations : null, 60_000);
@@ -23,11 +25,11 @@ export function useLocalLayers(viewport: { bbox: BoundingBox; zoom: number } | n
   const scooters = useLayerFeed(viewportLoader, 30_000);
   const nearbyScooters = useLayerFeed(nearbyLoader, 30_000);
 
-  const disruptedStops = useMemo(() => disruptedStopsForMode(notices?.rows ?? [], selectedMode),
-    [notices, selectedMode]);
+  const disruptedStops = useMemo(() => disruptedStopsForMode(notices?.rows ?? [], selectedMode, language),
+    [notices, selectedMode, language]);
   const showStops = (viewport?.zoom ?? 0) >= BUS_STOPS_MIN_ZOOM;
-  const points = useMemo(() => localFeatures(bikes?.rows ?? [], scooters?.rows ?? [], disruptedStops, showStops),
-    [bikes, scooters, disruptedStops, showStops]);
+  const points = useMemo(() => localFeatures(bikes?.rows ?? [], scooters?.rows ?? [], disruptedStops, showStops, language),
+    [bikes, scooters, disruptedStops, showStops, language]);
   const nearbyStations = useMemo(() => {
     if (!hub || !bikes) return [];
     return bikes.rows.map(station => ({

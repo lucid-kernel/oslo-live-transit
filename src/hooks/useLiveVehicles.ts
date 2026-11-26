@@ -9,7 +9,7 @@ interface UseLiveVehiclesResult {
   stats: VehicleStats | null;
   isLoading: boolean;
   hasInitialLoad: boolean;
-  error: string | null;
+  error: boolean;
   refresh: () => void;
 }
 
@@ -19,7 +19,7 @@ export function useLiveVehicles(selectedMode: TransitMode | 'all'): UseLiveVehic
   const [stats, setStats] = useState<VehicleStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasInitialLoad, setHasInitialLoad] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -34,11 +34,11 @@ export function useLiveVehicles(selectedMode: TransitMode | 'all'): UseLiveVehic
       const res = await fetchLiveVehicles({ scope, signal: controller.signal });
       setVehicles(res.vehicles);
       setStats(res.stats);
-      setError(null);
+      setError(false);
       setHasInitialLoad(true);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setError(err instanceof Error ? err.message : 'Failed to fetch live transit data');
+      setError(true);
       setHasInitialLoad(true);
     } finally {
       setIsLoading(false);

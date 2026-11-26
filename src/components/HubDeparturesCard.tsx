@@ -1,3 +1,5 @@
+import { number } from '../i18n/language.ts';
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useState } from 'react';
 import type { LocalLayers } from '../hooks/useLocalLayers.ts';
 import { StopLayerDetails } from './StopLayerDetails.tsx';
@@ -8,7 +10,6 @@ import {
   formatOsloTime,
   getBadgeStyle,
   getRouteColor,
-  MODE_META,
 } from './transitTheme.ts';
 
 interface HubDeparturesCardProps {
@@ -16,7 +17,7 @@ interface HubDeparturesCardProps {
   hub: OsloHub;
   departures: StopDeparture[];
   isLoading: boolean;
-  error: string | null;
+  error: boolean;
   onRetry?: () => void;
   onClose: () => void;
 }
@@ -30,6 +31,7 @@ export function HubDeparturesCard({
   onRetry,
   onClose,
 }: HubDeparturesCardProps) {
+  const { m, language } = useLanguage();
   const [isMinimized, setIsMinimized] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 720px)').matches,
   );
@@ -44,17 +46,17 @@ export function HubDeparturesCard({
   const nextDep = upcoming[0];
 
   if (isMinimized) {
-    const nextCountdown = nextDep ? formatDepartureCountdown(nextDep.expectedTime) : null;
+    const nextCountdown = nextDep ? formatDepartureCountdown(nextDep.expectedTime, language) : null;
     return (
       <aside
         className="glass-panel detail-card minimized"
-        aria-label={`${hub.name} summary`}
+        aria-label={m.hubSummary(hub.name)}
       >
         <button
           type="button"
           className="detail-mini-info detail-mini-trigger"
           onClick={() => setIsMinimized(false)}
-          aria-label="Expand stop departures"
+          aria-label={m.expandStop}
         >
           <span
             className="line-badge"
@@ -65,12 +67,12 @@ export function HubDeparturesCard({
           <div className="detail-mini-text">
             <span className="detail-mini-dest">{hub.name}</span>
             <span className="detail-mini-meta">
-              {layers.stopNotices.length > 0 && <strong className="mini-notice">{layers.stopNotices.length} {layers.stopNotices.length === 1 ? 'notice' : 'notices'} · </strong>}
+              {layers.stopNotices.length > 0 && <strong className="mini-notice">{m.noticeCount(layers.stopNotices.length)} · </strong>}
               {nextDep
-                ? `Next: ${nextDep.lineCode} ${nextDep.destination} · ${nextCountdown ?? formatOsloTime(nextDep.expectedTime).slice(0, 5)}`
+                ? m.next(`${nextDep.lineCode} ${nextDep.destination || m.unknownDestination} · ${nextCountdown ?? formatOsloTime(nextDep.expectedTime, language, 'short')}`)
                 : isLoading
-                  ? 'Loading live departures…'
-                  : 'No upcoming departures'}
+                  ? m.loadingDepartures
+                  : m.noDepartures}
             </span>
           </div>
         </button>
@@ -80,8 +82,8 @@ export function HubDeparturesCard({
             type="button"
             className="icon-btn"
             onClick={() => setIsMinimized(false)}
-            aria-label="Expand stop departures"
-            title="Expand departures"
+            aria-label={m.expandStop}
+            title={m.expandDepartures}
           >
             <ChevronUp size={16} />
           </button>
@@ -89,8 +91,8 @@ export function HubDeparturesCard({
             type="button"
             className="icon-btn"
             onClick={onClose}
-            aria-label="Close hub departures"
-            title="Close & clear stop routes (Esc)"
+            aria-label={m.closeStop}
+            title={m.clearStop}
           >
             <X size={16} />
           </button>
@@ -100,23 +102,23 @@ export function HubDeparturesCard({
   }
 
   return (
-    <aside className="glass-panel detail-card" aria-label={`${hub.name} live departures`}>
+    <aside className="glass-panel detail-card" aria-label={m.hubDepartures(hub.name)}>
       <div className="detail-header">
         <div>
           <div className="mode-tag" style={{ marginBottom: 6 }}>
             <MapPin size={12} color="#38BDF8" />
-            Live Stop Departures
+            {m.liveDepartures}
           </div>
           <h2 className="detail-destination">{hub.name}</h2>
-          <div className="detail-subline">Live departures via Entur JourneyPlanner</div>
+          <div className="detail-subline">{m.viaEntur}</div>
         </div>
         <div className="detail-header-actions">
           <button
             type="button"
             className="icon-btn"
             onClick={() => setIsMinimized(true)}
-            aria-label="Minimize stop departures"
-            title="Minimize to keep routes visible"
+            aria-label={m.minimizeStop}
+            title={m.keepRoutes}
           >
             <ChevronDown size={16} />
           </button>
@@ -124,8 +126,8 @@ export function HubDeparturesCard({
             type="button"
             className="icon-btn"
             onClick={onClose}
-            aria-label="Close hub departures"
-            title="Close & clear stop routes (Esc)"
+            aria-label={m.closeStop}
+            title={m.clearStop}
           >
             <X size={16} />
           </button>
@@ -135,19 +137,19 @@ export function HubDeparturesCard({
       <StopLayerDetails layers={layers} />
 
       {isLoading && upcoming.length === 0 ? (
-        <div className="detail-subline">Loading live departures…</div>
+        <div className="detail-subline">{m.loadingDepartures}</div>
       ) : error ? (
         <div className="error-banner" role="alert">
-          <span style={{ flex: 1 }}>Could not load departures ({error})</span>
+          <span style={{ flex: 1 }}>{m.departuresFailed}</span>
           {onRetry && (
             <button type="button" className="retry-btn" onClick={onRetry}>
               <RotateCw size={12} />
-              Retry
+              {m.retry}
             </button>
           )}
         </div>
       ) : upcoming.length === 0 ? (
-        <div className="detail-subline">No upcoming departures found.</div>
+        <div className="detail-subline">{m.noDeparturesFound}</div>
       ) : (
         <div className="departures-list">
           {upcoming.map((dep, idx) => {
@@ -163,21 +165,21 @@ export function HubDeparturesCard({
                   {dep.lineCode}
                 </span>
                 <div className="departure-info">
-                  <span className="departure-dest">{dep.destination}</span>
+                  <span className="departure-dest">{dep.destination || m.unknownDestination}</span>
                   <span className="departure-meta">
-                    {MODE_META[dep.mode].label}
-                    {dep.platform ? ` · Plat. ${dep.platform}` : ''}
-                    {dep.realtime ? ' · Live' : ' · Sched.'}
+                    {m[dep.mode]}
+                    {dep.platform ? ` · ${m.platform(dep.platform)}` : ''}
+                     · {dep.realtime ? m.live : m.scheduled}
                   </span>
                 </div>
                 <div className="departure-time">
                   <div>
-                    {formatDepartureCountdown(dep.expectedTime) ??
-                      formatOsloTime(dep.expectedTime).slice(0, 5)}
+                    {formatDepartureCountdown(dep.expectedTime, language) ??
+                      formatOsloTime(dep.expectedTime, language, 'short')}
                   </div>
                   <div className={`departure-subtime${delayMin > 0 ? ' delayed' : ''}`}>
-                    {formatOsloTime(dep.expectedTime).slice(0, 5)}
-                    {delayMin > 0 ? ` · +${delayMin}m` : ''}
+                    {formatOsloTime(dep.expectedTime, language, 'short')}
+                    {delayMin > 0 ? ` · +${m.minutes(number(delayMin, language))}` : ''}
                   </div>
                 </div>
               </div>

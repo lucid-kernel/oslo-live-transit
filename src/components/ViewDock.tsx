@@ -1,3 +1,5 @@
+import { number } from '../i18n/language.ts';
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useRef } from 'react';
 import { Layers } from 'lucide-react';
 import type { MapView, TransitMode, VehicleStats } from '../types/transit.ts';
@@ -12,6 +14,7 @@ interface ViewDockProps {
 }
 
 export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 'all' }: ViewDockProps) {
+  const { m, language } = useLanguage();
   const bar = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const toolbar = bar.current;
@@ -42,31 +45,31 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
       toolbar.removeEventListener('keydown', navigate);
     };
   }, [selectedMode]);
-  const total = stats?.total ?? '–';
+  const total = stats ? number(stats.total, language) : '–';
   const isScooter = selectedMode === 'scooter';
   const scooterColor = '#c4a2ff';
   const isAll = selectedMode === 'all';
 
   return (
-    <nav className="hud-bottom-dock" aria-label="Transit views">
-      <div ref={bar} {...{ focusgroup: 'toolbar wrap' }} className="glass-panel view-dock" role="toolbar" aria-label="Select map view">
+    <nav className="hud-bottom-dock" aria-label={m.transitViews}>
+      <div ref={bar} {...{ focusgroup: 'toolbar wrap' }} className="glass-panel view-dock" role="toolbar" aria-label={m.selectView}>
         <button
           type="button"
           aria-pressed={isAll}
           className={`view-dock-item${isAll ? ' active' : ''}`}
-          title="All transit modes (Shortcut: 1)"
+          title={m.allShortcut}
           onClick={() => onSelectMode('all')}
         >
           <span className="view-dock-icon">
             <Layers size={16} strokeWidth={2.1} color={isAll ? '#38bdf8' : 'currentColor'} />
           </span>
-          <span className="view-dock-label">Alle</span>
+          <span className="view-dock-label">{m.all}</span>
           <span className="view-dock-count">{total}</span>
         </button>
 
         {MODE_ORDER.map((mode, idx) => {
           const meta = MODE_META[mode];
-          const count = stats?.byMode[mode] ?? '–';
+          const count = stats ? number(stats.byMode[mode], language) : '–';
           const isActive = selectedMode === mode;
 
           return (
@@ -75,7 +78,7 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
               type="button"
               aria-pressed={isActive}
               className={`view-dock-item${isActive ? ' active' : ''}`}
-              title={`${meta.label} (${meta.englishLabel}) · Shortcut: ${idx + 2}`}
+              title={m.modeShortcut(m[mode], String(idx + 2))}
               style={
                 isActive
                   ? ({ '--view-accent': meta.color } as React.CSSProperties)
@@ -95,7 +98,7 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
                   aria-hidden="true"
                 />
               </span>
-              <span className="view-dock-label">{meta.label}</span>
+              <span className="view-dock-label">{m[mode]}</span>
               <span className="view-dock-count">{count}</span>
             </button>
           );
@@ -105,7 +108,7 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
           aria-pressed={isScooter}
           className={`view-dock-item${isScooter ? ' active' : ''}`}
           style={{ '--view-accent': scooterColor } as React.CSSProperties}
-          title="Scooter (Shortcut: 7)"
+          title={m.scooterShortcut}
           onClick={() => onSelectMode(isScooter ? previousTransit : 'scooter')}
         >
           <span className="view-dock-icon">
@@ -115,7 +118,7 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
             </svg>
             <span className="view-dock-dot" style={{ backgroundColor: scooterColor }} aria-hidden="true" />
           </span>
-          <span className="view-dock-label">Scooter</span>
+          <span className="view-dock-label">{m.scooter}</span>
         </button>
       </div>
     </nav>

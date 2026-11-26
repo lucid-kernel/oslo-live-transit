@@ -54,12 +54,6 @@ export async function fetchBikeStations(signal: AbortSignal): Promise<BikeStatio
   });
 }
 
-export function bikeAvailability(station: BikeStation): string {
-  const bikes = station.bikes === 1 ? '1 bike' : `${station.bikes} bikes`;
-  const docks = station.docks === 1 ? '1 free dock' : `${station.docks} free docks`;
-  return `${bikes} · ${docks}`;
-}
-
 const OPERATORS: Record<string, string> = { voioslo: 'Voi', boltoslo: 'Bolt', rydeoslo: 'Ryde' };
 const MOBILITY_ENDPOINT = 'https://api.entur.io/mobility/v2/graphql';
 const AVAILABLE_FILTERS = `systems: ["voioslo","boltoslo","rydeoslo"],

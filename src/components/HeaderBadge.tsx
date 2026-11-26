@@ -1,3 +1,6 @@
+import { number } from '../i18n/language.ts';
+import { LanguagePicker } from './LanguagePicker.tsx';
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { RefreshCw } from 'lucide-react';
 import type { PositionSource } from '../types/transit.ts';
 import { formatOsloTime } from './transitTheme.ts';
@@ -21,55 +24,47 @@ export function HeaderBadge({
   hasError,
   onRefresh,
 }: HeaderBadgeProps) {
+  const { m, language } = useLanguage();
   const countLabel =
     filteredCount === totalVehicles
-      ? `${totalVehicles} live`
-      : `${filteredCount} / ${totalVehicles} live`;
+      ? m.liveCount(number(totalVehicles, language))
+      : m.liveCount(`${number(filteredCount, language)} / ${number(totalVehicles, language)}`);
 
   const sourceSummary = bySource
-    ? `${bySource.gps} GPS · ${bySource.estimated} Est.`
+    ? m.sourceCount(number(bySource.gps, language), number(bySource.estimated, language))
     : null;
 
   return (
     <header className="glass-panel header-badge">
-      <div className="header-brand">
-        <div className="live-dot-wrap" aria-hidden="true">
-          {!hasError && <span className="live-dot-ping" />}
-          <span className={`live-dot${hasError ? ' error' : ''}`} />
-        </div>
-        <div className="header-title-group">
-          <h1 className="header-title">Oslo Live Transit</h1>
-          <div className="header-subtitle">
-            <span>
-              {lastUpdated
-                ? `Updated ${formatOsloTime(lastUpdated)}`
-                : 'Connecting to Entur…'}
-            </span>
-            {sourceSummary && (
-              <span
-                className="source-summary-tag"
-                title="Direct SIRI-VM GPS vs. Entur route-interpolated vehicles"
-              >
-                · {sourceSummary}
-              </span>
-            )}
+      <div className="header-row">
+        <div className="header-brand">
+          <div className="live-dot-wrap" aria-hidden="true">
+            {!hasError && <span className="live-dot-ping" />}
+            <span className={`live-dot${hasError ? ' error' : ''}`} />
           </div>
+          <h1 className="header-title">Oslo Live Transit</h1>
         </div>
+        <LanguagePicker />
       </div>
-
-      <div className="header-actions">
-        <span className="vehicle-total-pill" aria-live="polite">
-          {countLabel}
-        </span>
-        <button
-          type="button"
-          className={`icon-btn${isLoading ? ' spinning' : ''}`}
-          onClick={onRefresh}
-          title="Refresh live vehicles"
-          aria-label="Refresh live vehicles"
-        >
-          <RefreshCw size={15} />
-        </button>
+      <div className="header-row">
+        <div className="header-subtitle">
+          <span>{lastUpdated ? m.updated(formatOsloTime(lastUpdated, language)) : m.connecting}</span>
+          {sourceSummary && <span className="source-summary-tag" title={m.sources}> · {sourceSummary}</span>}
+        </div>
+        <div className="header-actions">
+          <span className="vehicle-total-pill" aria-live="polite">
+            {countLabel}
+          </span>
+          <button
+            type="button"
+            className={`icon-btn${isLoading ? ' spinning' : ''}`}
+            onClick={onRefresh}
+            title={m.refresh}
+            aria-label={m.refresh}
+          >
+            <RefreshCw size={15} />
+          </button>
+        </div>
       </div>
     </header>
   );

@@ -1,3 +1,4 @@
+import { useLanguage } from './i18n/LanguageProvider.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import type {
@@ -111,6 +112,7 @@ function TransitView({ selectedMode, setSelectedMode, searchQuery, setSearchQuer
   savedCamera: React.RefObject<TransitCamera | null>;
   preferences: ReturnType<typeof useLayerPreferences>;
 }) {
+  const { m } = useLanguage();
   const [selectedRailCategory, setSelectedRailCategory] = useState<RailCategory | 'all'>('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastSelectedVehicle, setLastSelectedVehicle] = useState<LiveVehicle | null>(null);
@@ -292,7 +294,7 @@ function TransitView({ selectedMode, setSelectedMode, searchQuery, setSearchQuer
           bySource={stats?.bySource ?? null}
           lastUpdated={stats?.fetchedAt ?? null}
           isLoading={isLoading}
-          hasError={Boolean(error)}
+          hasError={error}
           onRefresh={refresh}
         />
 
@@ -321,7 +323,7 @@ function TransitView({ selectedMode, setSelectedMode, searchQuery, setSearchQuer
         {error && (
           <div className="error-banner" role="alert">
             <AlertCircle size={15} />
-            <span>{error}</span>
+            <span>{m.liveFailed}</span>
           </div>
         )}
       </div>

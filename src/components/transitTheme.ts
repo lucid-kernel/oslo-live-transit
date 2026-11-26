@@ -1,19 +1,17 @@
+import { locales, messages, number, type Language } from '../i18n/language.ts';
 import type { LiveVehicle, NetworkRoute, RailCategory, TransitMode } from '../types/transit.ts';
 
 export interface ModeMeta {
   mode: TransitMode;
-  label: string;
-  englishLabel: string;
-  shortCode: string;
   color: string;
 }
 
 export const MODE_META: Record<TransitMode, ModeMeta> = {
-  bus: { mode: 'bus', label: 'Buss', englishLabel: 'Bus', shortCode: 'B', color: '#E60000' },
-  tram: { mode: 'tram', label: 'Trikk', englishLabel: 'Tram', shortCode: 'TR', color: '#0B92E5' },
-  train: { mode: 'train', label: 'Tog', englishLabel: 'Train', shortCode: 'TG', color: '#10B981' },
-  metro: { mode: 'metro', label: 'T-bane', englishLabel: 'Metro', shortCode: 'T', color: '#EC700C' },
-  ferry: { mode: 'ferry', label: 'Båt', englishLabel: 'Ferry', shortCode: 'BÅ', color: '#14B8A6' },
+  bus: { mode: 'bus', color: '#E60000' },
+  tram: { mode: 'tram', color: '#0B92E5' },
+  train: { mode: 'train', color: '#10B981' },
+  metro: { mode: 'metro', color: '#EC700C' },
+  ferry: { mode: 'ferry', color: '#14B8A6' },
 };
 
 const DARK_TEXT_BADGE_OVERRIDES: Record<string, string> = {
@@ -61,13 +59,6 @@ const RAIL_CATEGORY_COLORS: Record<RailCategory, string> = {
   local: '#22D3EE', // Local L1, L2
 };
 
-export const RAIL_CATEGORY_LABELS: Record<RailCategory, string> = {
-  local: 'Local',
-  regional: 'Regional',
-  long_distance: 'Long Distance',
-  airport: 'Airport',
-};
-
 /** Returns Oslo-authentic color for a network route. */
 export function getRouteColor({
   mode, lineCode, lineColor, operator, operatorName, railCategory,
@@ -95,12 +86,18 @@ export function getVehicleColor(
   return getRouteColor(vehicle);
 }
 
-export function formatSpeedKmh(speedMps: number | null): string {
+const speedOptions = { style: 'unit', unit: 'kilometer-per-hour', maximumFractionDigits: 0 } as const;
+const speedFormats = {
+  nb: new Intl.NumberFormat(locales.nb, speedOptions),
+  en: new Intl.NumberFormat(locales.en, speedOptions),
+};
+
+export function formatSpeedKmh(speedMps: number | null, language: Language): string {
   if (speedMps === null || Number.isNaN(speedMps)) return '—';
-  return `${Math.round(speedMps * 3.6)} km/h`;
+  return speedFormats[language].format(speedMps * 3.6);
 }
 
-export function formatDelay(delaySeconds: number | null): {
+export function formatDelay(delaySeconds: number | null, language: Language): {
   text: string;
   tone: 'on-time' | 'delayed' | 'late' | 'neutral';
 } {
@@ -108,43 +105,49 @@ export function formatDelay(delaySeconds: number | null): {
     return { text: '—', tone: 'neutral' };
   }
   if (Math.abs(delaySeconds) < 45) {
-    return { text: 'On time', tone: 'on-time' };
+    return { text: messages[language].onTime, tone: 'on-time' };
   }
   const absMin = Math.round(Math.abs(delaySeconds) / 60);
   if (delaySeconds > 0) {
     return {
-      text: `+${absMin}m late`,
+      text: messages[language].late(number(absMin, language)),
       tone: absMin >= 5 ? 'late' : 'delayed',
     };
   }
-  return { text: `${absMin}m early`, tone: 'on-time' };
+  return { text: messages[language].early(number(absMin, language)), tone: 'on-time' };
 }
 
-export function formatCompassBearing(bearing: number | null): string {
+export function formatCompassBearing(bearing: number | null, language: Language): string {
   if (bearing === null || Number.isNaN(bearing)) return '—';
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const dirs = language === 'nb' ? ['N', 'NØ', 'Ø', 'SØ', 'S', 'SV', 'V', 'NV'] : ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   const normalized = ((bearing % 360) + 360) % 360;
   const idx = Math.round(normalized / 45) % 8;
   return `${Math.round(normalized)}° ${dirs[idx]}`;
 }
 
-export function formatOsloTime(isoTimestamp: string): string {
-  const date = new Date(isoTimestamp);
-  if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleTimeString('nb-NO', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZone: 'Europe/Oslo',
+function osloClock(locale: string, seconds: boolean) {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: 'Europe/Oslo', hourCycle: 'h23', hour: '2-digit', minute: '2-digit',
+    ...(seconds && { second: '2-digit' }),
   });
 }
 
+const clocks = {
+  en: { full: osloClock(locales.en, true), short: osloClock(locales.en, false) },
+  nb: { full: osloClock(locales.nb, true), short: osloClock(locales.nb, false) },
+};
+
+export function formatOsloTime(timestamp: string | number, language: Language, precision: 'full' | 'short' = 'full'): string {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? '—' : clocks[language][precision].format(date);
+}
+
 /** Returns a short relative countdown (e.g. "Now", "3m") for departures within 60 minutes. */
-export function formatDepartureCountdown(isoTimestamp: string): string | null {
+export function formatDepartureCountdown(isoTimestamp: string, language: Language): string | null {
   const targetMs = Date.parse(isoTimestamp);
   if (!Number.isFinite(targetMs)) return null;
   const diffMin = Math.round((targetMs - Date.now()) / 60_000);
-  if (diffMin <= 0) return 'Now';
-  if (diffMin < 60) return `${diffMin}m`;
+  if (diffMin <= 0) return messages[language].now;
+  if (diffMin < 60) return messages[language].minutes(number(diffMin, language));
   return null;
 }

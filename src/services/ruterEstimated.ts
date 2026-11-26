@@ -416,7 +416,7 @@ function parseServiceJourney(sj: RawServiceJourney, nowMs: number): CachedJourne
 
   const lineCode = sj.line?.publicCode ?? sj.line?.name ?? '?';
   const destination =
-    calls[0].destination || calls[calls.length - 1].stopName || 'In service';
+    calls[0].destination || calls[calls.length - 1].stopName;
 
   return {
     id: sj.id,

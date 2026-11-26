@@ -1,3 +1,8 @@
+import { useMapLanguage } from './map/mapLanguage.ts';
+import { number } from '../i18n/language.ts';
+import { LanguagePicker } from './LanguagePicker.tsx';
+import { formatOsloTime } from './transitTheme.ts';
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { LocateFixed, X } from 'lucide-react';
@@ -13,6 +18,7 @@ import { ScooterCard } from './ScooterCard.tsx';
 const EMPTY: AvailableScooter[] = [];
 
 export function ScooterView() {
+  const { m, language } = useLanguage();
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [view, setView] = useState<ScooterViewport | null>(null);
@@ -25,7 +31,7 @@ export function ScooterView() {
   const [selected, setSelected] = useState<AvailableScooter | null>(null);
   const [stack, setStack] = useState<string[]>([]);
   const [locating, setLocating] = useState(false);
-  const [locationError, setLocationError] = useState('');
+  const [locationError, setLocationError] = useState<'locationUnsupported' | 'locationDenied' | 'locationFailed' | null>(null);
   const marker = useRef<maplibregl.Marker | null>(null);
   const count = useMemo(() => view && current
     ? rows.filter(s => operators.includes(s.operator) && isWithinBbox(s.lat, s.lon, view.bbox)).length
@@ -83,6 +89,8 @@ export function ScooterView() {
       map.remove();
     };
   }, []);
+  useMapLanguage(mapRef, language, m.scooterMap);
+
   useEffect(() => {
     mapRef.current?.getSource<maplibregl.GeoJSONSource>('scooter-pickups')?.setData(grouped.geojson);
   }, [grouped]);
@@ -94,9 +102,9 @@ export function ScooterView() {
 
   const locate = () => {
     const map = mapRef.current;
-    if (!map || !navigator.geolocation) { setLocationError('Location unavailable on this device.'); return; }
+    if (!map || !navigator.geolocation) { setLocationError('locationUnsupported'); return; }
     setLocating(true);
-    setLocationError('');
+    setLocationError(null);
     navigator.geolocation.getCurrentPosition(({ coords }) => {
       if (mapRef.current !== map) return;
       setLocating(false);
@@ -107,7 +115,7 @@ export function ScooterView() {
     }, error => {
       if (mapRef.current !== map) return;
       setLocating(false);
-      setLocationError(error.code === 1 ? 'Location access denied. Explore by moving the map.' : 'Could not find your location.');
+      setLocationError(error.code === 1 ? 'locationDenied' : 'locationFailed');
     }, { timeout: 12_000, maximumAge: 30_000 });
   };
 
@@ -115,28 +123,37 @@ export function ScooterView() {
   const unavailable = !!(selected && snapshot && isWithinBbox(selected.lat, selected.lon, snapshot.scope)
     && !rows.some(row => row.id === selected.id));
   return <>
-    <div className="map-container" ref={container} aria-label="Available scooter map" />
+    <div className="map-container" ref={container} />
     <div className="hud-top-left">
-      <section className="glass-panel scooter-panel" aria-label="Scooter controls">
-        <header><div><h1>Scooters</h1><p><strong>{count == null ? '—' : count.toLocaleString()}</strong> Available in map area</p></div>
-          <button className="scooter-location" onClick={locate} disabled={locating}><LocateFixed size={16} />{locating ? 'Locating…' : 'My location'}</button>
+      <section className="glass-panel scooter-panel" aria-label={m.scooterControls}>
+        <header>
+          <div>
+            <h1>{m.scooters}</h1>
+            <p><strong>{count == null ? '—' : number(count, language)}</strong> {m.inMap}</p>
+          </div>
+          <LanguagePicker />
         </header>
-        <div className="scooter-operators" role="group" aria-label="Scooter operators">
-          {SCOOTER_OPERATORS.map(op => <button key={op} type="button" aria-pressed={operators.includes(op)} onClick={() => {
-            setOperators(previous => previous.includes(op) ? previous.filter(value => value !== op) : [...previous, op]);
-            if (selected?.operator === op) setSelected(null);
-          }}>{op}</button>)}
+        <div className="scooter-filters">
+          <div className="scooter-operators" role="group" aria-label={m.scooterOperators}>
+            {SCOOTER_OPERATORS.map(op => <button key={op} type="button" aria-pressed={operators.includes(op)} onClick={() => {
+              setOperators(previous => previous.includes(op) ? previous.filter(value => value !== op) : [...previous, op]);
+              if (selected?.operator === op) setSelected(null);
+            }}>{op}</button>)}
+          </div>
+          <button className="scooter-location" onClick={locate} disabled={locating}>
+            <LocateFixed size={16} />{locating ? m.locating : m.myLocation}
+          </button>
         </div>
-        {failed ? <p role="status">{snapshot ? `Refresh failed · last updated ${new Date(snapshot.updated).toLocaleTimeString()}` : 'Scooter availability unavailable.'} <button className="retry-btn" onClick={retry}>Retry</button></p>
-          : !current && <p role="status">Loading scooter availability…</p>}
-        {locationError && <p role="status">{locationError}</p>}
+        {failed ? <p role="status">{snapshot ? m.stale(formatOsloTime(snapshot.updated, language)) : m.availabilityFailed} <button className="retry-btn" onClick={retry}>{m.retry}</button></p>
+          : !current && <p role="status">{m.loadingScooters}</p>}
+        {locationError && <p role="status">{m[locationError]}</p>}
       </section>
     </div>
     {(selected || stack.length > 0) && <div className="hud-right-drawer">
       {selected ? <ScooterCard key={selected.id} scooter={selected} unavailable={unavailable} close={() => setSelected(null)} />
-        : <aside className="glass-panel scooter-card"><header><h2>Scooters at this spot</h2><button className="icon-btn" aria-label="Close scooter list" onClick={() => setStack([])}><X size={16} /></button></header>
-          {choices.length === 0 && <p>No available scooters here.</p>}
-          {choices.map(s => <button key={s.id} className="scooter-choice" onClick={() => setSelected(s)}>{s.operator} scooter <small>{s.id.split(':').pop()?.slice(-8)}</small></button>)}
+        : <aside className="glass-panel scooter-card"><header><h2>{m.atSpot}</h2><button className="icon-btn" aria-label={m.closeScooterList} onClick={() => setStack([])}><X size={16} /></button></header>
+          {choices.length === 0 && <p>{m.noScooters}</p>}
+          {choices.map(s => <button key={s.id} className="scooter-choice" onClick={() => setSelected(s)}>{m.operatorScooter(s.operator)} <small>{s.id.split(':').pop()?.slice(-8)}</small></button>)}
         </aside>}
     </div>}
   </>;

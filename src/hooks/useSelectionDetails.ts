@@ -16,11 +16,11 @@ import {
 interface UseSelectionDetailsResult {
   vehicleJourney: VehicleJourneyDetails | null;
   journeyLoading: boolean;
-  journeyError: string | null;
+  journeyError: boolean;
   hubDepartures: StopDeparture[];
   busStopRoutes: NetworkRoute[];
   hubLoading: boolean;
-  hubError: string | null;
+  hubError: boolean;
   retryHub: () => void;
 }
 
@@ -34,12 +34,12 @@ export function useSelectionDetails(
 ): UseSelectionDetailsResult {
   const [vehicleJourney, setVehicleJourney] = useState<VehicleJourneyDetails | null>(null);
   const [journeyLoading, setJourneyLoading] = useState(false);
-  const [journeyError, setJourneyError] = useState<string | null>(null);
+  const [journeyError, setJourneyError] = useState(false);
 
   const [hubDepartures, setHubDepartures] = useState<StopDeparture[]>([]);
   const [busStopRoutes, setBusStopRoutes] = useState<NetworkRoute[]>([]);
   const [hubLoading, setHubLoading] = useState(false);
-  const [hubError, setHubError] = useState<string | null>(null);
+  const [hubError, setHubError] = useState(false);
   const [retrySeq, setRetrySeq] = useState(0);
 
   const retryHub = useCallback(() => {
@@ -50,23 +50,23 @@ export function useSelectionDetails(
     if (!selectedVehicle) {
       setVehicleJourney(null);
       setJourneyLoading(false);
-      setJourneyError(null);
+      setJourneyError(false);
       return;
     }
 
     const controller = new AbortController();
     setJourneyLoading(true);
-    setJourneyError(null);
+    setJourneyError(false);
 
     fetchVehicleJourney(selectedVehicle, controller.signal)
       .then((details) => {
         setVehicleJourney(details);
-        setJourneyError(null);
+        setJourneyError(false);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setVehicleJourney(null);
-        setJourneyError('Route path temporarily unavailable');
+        setJourneyError(true);
       })
       .finally(() => setJourneyLoading(false));
 
@@ -76,7 +76,7 @@ export function useSelectionDetails(
   useEffect(() => {
     if (!selectedHub) {
       setHubDepartures([]);
-      setHubError(null);
+      setHubError(false);
       setBusStopRoutes([]);
       return;
     }
@@ -89,7 +89,7 @@ export function useSelectionDetails(
       activeController = controller;
       if (isInitial) {
         setHubLoading(true);
-        setHubError(null);
+        setHubError(false);
       }
 
       if (selectedMode === 'bus') {
@@ -97,11 +97,11 @@ export function useSelectionDetails(
           .then(({ departures, routes }) => {
             setHubDepartures(departures);
             setBusStopRoutes(routes);
-            setHubError(null);
+            setHubError(false);
           })
           .catch((err) => {
             if (err instanceof DOMException && err.name === 'AbortError') return;
-            setHubError(err instanceof Error ? err.message : 'Failed to load bus stop routes');
+            setHubError(true);
           })
           .finally(() => setHubLoading(false));
       } else {
@@ -109,11 +109,11 @@ export function useSelectionDetails(
         fetchStopDepartures(selectedHub.id, { numberOfDepartures: 25, signal: controller.signal })
           .then((deps) => {
             setHubDepartures(deps);
-            setHubError(null);
+            setHubError(false);
           })
           .catch((err) => {
             if (err instanceof DOMException && err.name === 'AbortError') return;
-            setHubError(err instanceof Error ? err.message : 'Failed to load hub departures');
+            setHubError(true);
           })
           .finally(() => setHubLoading(false));
       }

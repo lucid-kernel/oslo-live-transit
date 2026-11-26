@@ -1,3 +1,5 @@
+import { useMapLanguage } from './map/mapLanguage.ts';
+import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import type {
@@ -14,7 +16,6 @@ import {
   formatSpeedKmh,
   getBadgeStyle,
   getVehicleColor,
-  MODE_META,
 } from './transitTheme.ts';
 import {
   buildJourneyLineFeature,
@@ -129,6 +130,9 @@ export function TransitMap({
   onViewportChange,
   onMapReady,
 }: TransitMapProps) {
+  const { m, language } = useLanguage();
+  const languageRef = useRef(language);
+  languageRef.current = language;
   const initialCamera = useRef(savedCamera.current?.nationalRail === nationalRail ? savedCamera.current.camera : null);
   const restoredQuery = useRef(initialCamera.current ? searchQuery : null);
   const lastNationalRail = useRef(nationalRail);
@@ -153,11 +157,11 @@ export function TransitMap({
       properties.kind === selection.kind && properties.id === selection.id);
     if (feature) {
       selection.popup.setLngLat(feature.geometry.coordinates);
-      setLocalPopupContent(selection.popup, feature.properties);
+      setLocalPopupContent(selection.popup, feature.properties, language);
     } else {
       selection.popup.remove();
     }
-  }, [localPoints]);
+  }, [localPoints, language]);
 
   const vehiclesRef = useRef<LiveVehicle[]>([]);
   const vehiclesByIdRef = useRef<Map<string, LiveVehicle>>(new Map());
@@ -303,7 +307,7 @@ export function TransitMap({
         if (kind === 'bike-stations' || kind === 'available-scooters' || kind === 'notice-overview') {
           const popup = new maplibregl.Popup({ className: 'mobility-popup', offset: 9 })
             .setLngLat([lon, lat]);
-          setLocalPopupContent(popup, hit.properties);
+          setLocalPopupContent(popup, hit.properties, languageRef.current);
           popup.addTo(map);
           localPopupRef.current = { popup, id, kind };
           return;
@@ -446,6 +450,7 @@ export function TransitMap({
       mapRef.current = null;
     };
   }, []);
+  useMapLanguage(mapRef, language, m.map);
 
   useEffect(() => {
     vehiclesRef.current = vehicles;
@@ -742,17 +747,17 @@ export function TransitMap({
               {tooltipVehicle.vehicle.lineCode}
             </span>
             <span className="tooltip-operator">
-              {MODE_META[tooltipVehicle.vehicle.mode].label} · {tooltipVehicle.vehicle.operator}
+              {m[tooltipVehicle.vehicle.mode]} · {tooltipVehicle.vehicle.operator || m.unknownOperator}
             </span>
           </div>
-          <div className="tooltip-dest">{tooltipVehicle.vehicle.destination}</div>
+          <div className="tooltip-dest">{tooltipVehicle.vehicle.destination || m.inService}</div>
           <div className="tooltip-stats">
-            {formatSpeedKmh(tooltipVehicle.vehicle.speed)}
-            {formatDelay(tooltipVehicle.vehicle.delaySeconds).text !== '—'
-              ? ` · ${formatDelay(tooltipVehicle.vehicle.delaySeconds).text}`
+            {formatSpeedKmh(tooltipVehicle.vehicle.speed, language)}
+            {formatDelay(tooltipVehicle.vehicle.delaySeconds, language).text !== '—'
+              ? ` · ${formatDelay(tooltipVehicle.vehicle.delaySeconds, language).text}`
               : ''}
             {tooltipVehicle.vehicle.nextStopName
-              ? ` · Next: ${tooltipVehicle.vehicle.nextStopName}`
+              ? ` · ${m.next(tooltipVehicle.vehicle.nextStopName)}`
               : ''}
           </div>
         </div>

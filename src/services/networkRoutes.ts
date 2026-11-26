@@ -547,7 +547,7 @@ export async function fetchStopDepartures(
       lineColor: readLineColor(line?.presentation),
       lineName: line?.name ?? lineCode,
       mode: mapVehicleMode(line?.transportMode),
-      destination: call.destinationDisplay?.frontText ?? 'Unknown',
+      destination: call.destinationDisplay?.frontText ?? '',
       aimedTime: call.aimedDepartureTime,
       expectedTime,
       delaySeconds,
