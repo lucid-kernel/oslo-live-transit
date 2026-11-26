@@ -10,6 +10,7 @@ import type {
 import {
   CODESPACE_OPERATOR_NAMES,
   VEHICLES_ENDPOINT,
+  isFlybussen,
   readLineColor,
   type LinePresentation,
   mapVehicleMode,
@@ -213,6 +214,12 @@ async function fetchGpsVehicles(
     }
 
     const lineCode = extractLineCode(raw.line);
+    if (isFlybussen({
+      transportMode: raw.mode,
+      publicCode: lineCode,
+      name: raw.line?.lineName,
+      authority: raw.operator,
+    })) continue;
     vehicles.push({
       id: raw.vehicleId,
       mode: mapVehicleMode(raw.mode),

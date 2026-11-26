@@ -11,12 +11,10 @@ import type {
 import { HeaderBadge } from './components/HeaderBadge.tsx';
 import { FilterBar } from './components/FilterBar.tsx';
 import { ViewDock } from './components/ViewDock.tsx';
-import { CameraPresets } from './components/CameraPresets.tsx';
 import { VehicleDetailCard } from './components/VehicleDetailCard.tsx';
 import { HubDeparturesCard } from './components/HubDeparturesCard.tsx';
 import { TransitMap } from './components/TransitMap.tsx';
 import { BootScreen } from './components/BootScreen.tsx';
-import { OSLO_CAMERA_PRESETS, type CameraPreset } from './components/transitTheme.ts';
 import { OSLO_HUBS } from './services/entur.ts';
 import { useLiveVehicles } from './hooks/useLiveVehicles.ts';
 import { BUS_STOPS_MIN_ZOOM, useNetworkOverlays } from './hooks/useNetworkOverlays.ts';
@@ -73,14 +71,7 @@ export function App() {
   const [selectedHub, setSelectedHub] = useState<OsloHub | null>(null);
 
   const [viewport, setViewport] = useState<{ bbox: BoundingBox; zoom: number } | null>(null);
-  const [activePresetId, setActivePresetId] = useState<string | null>(OSLO_CAMERA_PRESETS[0].id);
-  const [cameraRequest, setCameraRequest] = useState<{
-    preset: CameraPreset;
-    seq: number;
-  } | null>(null);
-
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const prevModeRef = useRef<TransitMode | 'all'>('all');
   const [mapReady, setMapReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
 
@@ -123,29 +114,9 @@ export function App() {
     retryHub,
   } = useSelectionDetails(selectedVehicle, selectedHub, selectedMode);
 
-  // Auto-fly to Norway overview when entering Train view, or back to Oslo when leaving Norway
   useEffect(() => {
-    const prevMode = prevModeRef.current;
-    prevModeRef.current = selectedMode;
-
-    if (selectedMode === 'train' && prevMode !== 'train') {
-      const norwayPreset = OSLO_CAMERA_PRESETS.find((p) => p.id === 'norway');
-      if (norwayPreset) {
-        setActivePresetId(norwayPreset.id);
-        setCameraRequest((prev) => ({ preset: norwayPreset, seq: (prev?.seq ?? 0) + 1 }));
-      }
-      return;
-    }
-
-    if (selectedMode !== 'train' && prevMode === 'train') {
-      setSelectedRailCategory('all');
-      if (activePresetId === 'norway') {
-        const osloPreset = OSLO_CAMERA_PRESETS[0];
-        setActivePresetId(osloPreset.id);
-        setCameraRequest((prev) => ({ preset: osloPreset, seq: (prev?.seq ?? 0) + 1 }));
-      }
-    }
-  }, [selectedMode, activePresetId]);
+    if (selectedMode !== 'train') setSelectedRailCategory('all');
+  }, [selectedMode]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
@@ -204,11 +175,6 @@ export function App() {
     setLastSelectedVehicle(null);
     setIsFollowing(false);
     setSelectedHub(hub);
-  }, []);
-
-  const handleSelectPreset = useCallback((preset: CameraPreset) => {
-    setActivePresetId(preset.id);
-    setCameraRequest((prev) => ({ preset, seq: (prev?.seq ?? 0) + 1 }));
   }, []);
 
   const handleViewportChange = useCallback((bbox: BoundingBox, zoom: number) => {
@@ -276,7 +242,7 @@ export function App() {
         }
         searchQuery={searchQuery}
         fitRouteSeq={fitRouteSeq}
-        cameraRequest={cameraRequest}
+        nationalRail={selectedMode === 'train'}
         onSelectVehicle={handleSelectVehicle}
         onSelectHub={handleSelectHub}
         onStopFollow={() => setIsFollowing(false)}
@@ -321,10 +287,6 @@ export function App() {
             <span>{error}</span>
           </div>
         )}
-      </div>
-
-      <div className="hud-bottom-left">
-        <CameraPresets activePresetId={activePresetId} onSelectPreset={handleSelectPreset} />
       </div>
 
       <ViewDock

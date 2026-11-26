@@ -20,6 +20,7 @@ export interface LiveVehicle {
   lineName: string;
   destination: string;
   origin: string | null;
+  boardingSinceMs?: number;
   currentStopName?: string | null;
   nextStopName?: string | null;
   operator: string;
@@ -73,6 +74,7 @@ export interface OsloHub {
 
 export interface NetworkStop {
   id: string;
+  stopPlaceId?: string;
   name: string;
   lat: number;
   lon: number;

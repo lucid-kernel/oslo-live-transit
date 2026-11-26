@@ -15,7 +15,6 @@ import {
   getBadgeStyle,
   getVehicleColor,
   MODE_META,
-  type CameraPreset,
 } from './transitTheme.ts';
 import {
   buildJourneyLineFeature,
@@ -35,6 +34,13 @@ import {
 
 const DARK_MATTER_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
+const OSLO_VIEW: maplibregl.CameraOptions = {
+  center: [OSLO_CENTER.longitude, OSLO_CENTER.latitude], zoom: 11.7, pitch: 15, bearing: 0,
+};
+const NORWAY_VIEW: maplibregl.CameraOptions = {
+  center: [10.5, 62.6], zoom: 4.8, pitch: 0, bearing: 0,
+};
+
 interface TransitMapProps {
   vehicles: LiveVehicle[];
   networkData: NetworkData | null;
@@ -45,7 +51,7 @@ interface TransitMapProps {
   shouldFitStopRoutes?: boolean;
   searchQuery?: string;
   fitRouteSeq?: number;
-  cameraRequest: { preset: CameraPreset; seq: number } | null;
+  nationalRail: boolean;
   onSelectVehicle: (vehicle: LiveVehicle | null) => void;
   onSelectHub: (hub: OsloHub | null) => void;
   onStopFollow?: () => void;
@@ -105,7 +111,7 @@ export function TransitMap({
   shouldFitStopRoutes = false,
   searchQuery = '',
   fitRouteSeq = 0,
-  cameraRequest,
+  nationalRail,
   onSelectVehicle,
   onSelectHub,
   onStopFollow,
@@ -159,10 +165,7 @@ export function TransitMap({
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: DARK_MATTER_STYLE,
-      center: [OSLO_CENTER.longitude, OSLO_CENTER.latitude],
-      zoom: 11.7,
-      pitch: 15,
-      bearing: 0,
+      ...OSLO_VIEW,
       maxZoom: 18,
       minZoom: 4.0,
       attributionControl: { compact: true },
@@ -179,12 +182,14 @@ export function TransitMap({
     let animFrameId: number | null = null;
     let lastFramePerf = 0;
 
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const renderFrame = (nowPerf: number) => {
       animFrameId = requestAnimationFrame(renderFrame);
       if (!mapReadyRef.current || nowPerf - lastFramePerf < FRAME_INTERVAL_MS) return;
       const dtSec = lastFramePerf > 0 ? (nowPerf - lastFramePerf) / 1000 : FRAME_INTERVAL_MS / 1000;
       lastFramePerf = nowPerf;
 
+      const nowMs = Date.now();
       const activeVehicles = vehiclesRef.current;
       const { positions, vehiclesById } = stepVehiclePositions(
         activeVehicles,
@@ -192,12 +197,12 @@ export function TransitMap({
         currentPosRef.current,
         nowPerf,
         dtSec,
-        Date.now(),
+        nowMs,
       );
 
       vehiclesByIdRef.current = vehiclesById;
       currentPosRef.current = positions;
-      syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(activeVehicles, positions));
+      syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(vehiclesById.values(), positions, nowMs, reducedMotion.matches));
 
       if (followVehicleIdRef.current && !userGestureActiveRef.current && !map.isMoving()) {
         const followedPos = positions.get(followVehicleIdRef.current);
@@ -291,7 +296,7 @@ export function TransitMap({
         const stop = stopId ? networkStopsByIdRef.current.get(stopId) : undefined;
         if (stop) {
           onSelectHubRef.current({
-            id: stop.id,
+            id: stop.stopPlaceId ?? stop.id,
             name: stop.name,
             latitude: stop.lat,
             longitude: stop.lon,
@@ -359,7 +364,7 @@ export function TransitMap({
       // Sync any initial state that arrived before map load completed
       syncGeoJsonSource(map, 'network-routes', buildNetworkRouteFeatures(networkDataRef.current));
       syncGeoJsonSource(map, 'network-stops', buildNetworkStopFeatures(networkDataRef.current));
-      syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(vehiclesRef.current, currentPosRef.current));
+      syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(vehiclesRef.current, currentPosRef.current, Date.now(), reducedMotion.matches));
       emitViewport();
       animFrameId = requestAnimationFrame(renderFrame);
     });
@@ -687,18 +692,12 @@ export function TransitMap({
   }, [selectedHubId]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !cameraRequest) return;
-    const { preset } = cameraRequest;
-    map.flyTo({
-      center: [preset.longitude, preset.latitude],
-      zoom: preset.zoom,
-      pitch: preset.pitch,
-      bearing: preset.bearing,
+    mapRef.current?.flyTo({
+      ...(nationalRail ? NORWAY_VIEW : OSLO_VIEW),
       duration: 1100,
       essential: true,
     });
-  }, [cameraRequest]);
+  }, [nationalRail]);
 
   const tooltipVehicle =
     hoveredVehicle && hoveredVehicle.vehicle.id !== selectedVehicleId

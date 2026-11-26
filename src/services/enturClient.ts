@@ -29,6 +29,21 @@ export function readLineColor(presentation?: LinePresentation | null): string | 
   return hex && /^[0-9a-f]{6}$/i.test(hex) ? `#${hex.toUpperCase()}` : undefined;
 }
 
+export interface EnturLine {
+  presentation?: LinePresentation | null;
+  transportMode?: string | null;
+  publicCode?: string | null;
+  name?: string | null;
+  authority?: { name?: string | null } | null;
+}
+
+/** Entur publishes airport buses under several operators using FB route codes. */
+export function isFlybussen(line: EnturLine | null | undefined): boolean {
+  if (!line || mapVehicleMode(line.transportMode) !== 'bus') return false;
+  return /^FB\s*\d+[A-Z]?$/i.test(line.publicCode?.trim() ?? '') ||
+    /\bflybuss/i.test(line.name ?? '') || /\bflybuss/i.test(line.authority?.name ?? '');
+}
+
 /** Maps Entur SIRI/NeTEx transport mode strings to normalized `TransitMode`. */
 export function mapVehicleMode(rawMode: string | null | undefined): TransitMode {
   switch (rawMode?.toUpperCase()) {

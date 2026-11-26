@@ -247,6 +247,11 @@ export function addTransitMapLayers(map: maplibregl.Map): void {
       'circle-stroke-width': ['case', ['==', ['get', 'positionSource'], 'estimated'], 1.5, 1.8],
       'circle-stroke-color': [
         'case',
+        ['has', 'boardingProgress'],
+        ['interpolate', ['linear'], ['number', ['get', 'boardingProgress']],
+          0, 'rgba(248, 250, 252, 0.6)',
+          0.45, 'rgba(248, 250, 252, 0.95)',
+          1, 'rgba(248, 250, 252, 0.73)'],
         ['==', ['get', 'positionSource'], 'estimated'],
         'rgba(248, 250, 252, 0.6)',
         '#090d16',

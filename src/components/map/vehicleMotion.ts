@@ -7,6 +7,7 @@ export const FRAME_INTERVAL_MS = 33;
 
 const POS_DAMP_TAU_SEC = 0.65;
 const BEARING_DAMP_TAU_SEC = 0.35;
+const FINAL_ROLL_DISTANCE_KM = 0.0001; // Ten centimetres at the quay.
 const SNAP_THRESHOLD_KM = 2.0;
 
 export interface GpsTrackState {
@@ -96,24 +97,19 @@ export function stepVehiclePositions(
   const vehiclesById = new Map<string, LiveVehicle>();
 
   for (const v of activeVehicles) {
+    const prev = prevPositions.get(v.id);
+    let holdingAtStop = false;
     let targetLon = v.longitude;
     let targetLat = v.latitude;
-    let targetBearing = v.bearing ?? prevPositions.get(v.id)?.bearing ?? 0;
+    let targetBearing = v.bearing ?? prev?.bearing ?? 0;
 
     if (v.positionSource === 'estimated') {
       const updated = estimatedById.get(v.id) ?? v;
       vehiclesById.set(v.id, updated);
-      if ((v.mode === 'bus' || v.mode === 'metro') && updated.speed === 0) {
-        positions.set(v.id, {
-          lon: updated.longitude,
-          lat: updated.latitude,
-          bearing: updated.bearing ?? targetBearing,
-        });
-        continue;
-      }
+      holdingAtStop = (v.mode === 'bus' || v.mode === 'metro') && updated.speed === 0;
       targetLon = updated.longitude;
       targetLat = updated.latitude;
-      targetBearing = updated.bearing ?? targetBearing;
+      targetBearing = holdingAtStop && prev ? prev.bearing : updated.bearing ?? targetBearing;
     } else {
       vehiclesById.set(v.id, v);
       const track = gpsTracks.get(v.id);
@@ -138,15 +134,21 @@ export function stepVehiclePositions(
       }
     }
 
-    const prev = prevPositions.get(v.id);
-    if (!prev || approxDistanceKm(prev.lon, prev.lat, targetLon, targetLat) > SNAP_THRESHOLD_KM) {
+    const distanceKm = prev ? approxDistanceKm(prev.lon, prev.lat, targetLon, targetLat) : Infinity;
+    if (!prev || distanceKm > SNAP_THRESHOLD_KM) {
       positions.set(v.id, { lon: targetLon, lat: targetLat, bearing: targetBearing });
       continue;
     }
 
+    // Roll the last centimetres at the speed we entered them, then come to rest.
+    let positionWeight = alphaPos;
+    if (holdingAtStop && distanceKm <= FINAL_ROLL_DISTANCE_KM) {
+      const stepKm = FINAL_ROLL_DISTANCE_KM * alphaPos;
+      positionWeight = distanceKm <= stepKm ? 1 : stepKm / distanceKm;
+    }
     positions.set(v.id, {
-      lon: prev.lon + (targetLon - prev.lon) * alphaPos,
-      lat: prev.lat + (targetLat - prev.lat) * alphaPos,
+      lon: prev.lon + (targetLon - prev.lon) * positionWeight,
+      lat: prev.lat + (targetLat - prev.lat) * positionWeight,
       bearing: interpolateAngle(prev.bearing, targetBearing, alphaBearing),
     });
   }

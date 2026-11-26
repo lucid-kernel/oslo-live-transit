@@ -50,12 +50,14 @@ const EMPTY_LINES: LineFeatureCollection = { type: 'FeatureCollection', features
 
 /** Builds GeoJSON point features for live vehicles using their interpolated positions. */
 export function buildVehicleFeatures(
-  vehicles: LiveVehicle[],
+  vehicles: Iterable<LiveVehicle>,
   positions: Map<string, VehicleAnimState>,
+  nowMs = Date.now(),
+  reducedMotion = false,
 ): PointFeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: vehicles.map((v) => {
+    features: Array.from(vehicles, (v) => {
       const pos = positions.get(v.id);
       return {
         type: 'Feature',
@@ -65,6 +67,9 @@ export function buildVehicleFeatures(
         },
         properties: {
           id: v.id,
+          ...(v.boardingSinceMs !== undefined && {
+            boardingProgress: reducedMotion ? 1 : Math.min(1, Math.max(0, nowMs - v.boardingSinceMs) / 1400),
+          }),
           lineCode: v.lineCode,
           color: getVehicleColor(v),
           bearing: pos ? pos.bearing : (v.bearing ?? 0),

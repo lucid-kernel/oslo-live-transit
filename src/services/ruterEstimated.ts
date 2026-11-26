@@ -1,6 +1,7 @@
 import type { BoundingBox, LiveVehicle, TransitMode } from '../types/transit.ts';
 import {
   JOURNEY_PLANNER_ENDPOINT,
+  isFlybussen,
   readLineColor,
   type LinePresentation,
   mapVehicleMode,
@@ -48,6 +49,8 @@ const RUTER_ALL_MODES_PATTERNS_QUERY = `
     lines(authorities: ["RUT:Authority:RUT"], transportModes: [bus, tram, metro, water]) {
       id
       transportMode
+      publicCode
+      name
       journeyPatterns {
         quays {
           stopPlace {
@@ -90,6 +93,7 @@ const RUTER_ACTIVE_JOURNEYS_QUERY = `
           }
           estimatedCalls {
             cancellation
+            forBoarding
             timingPoint
             actualArrivalTime
             actualDepartureTime
@@ -116,6 +120,7 @@ const RUTER_ACTIVE_JOURNEYS_QUERY = `
 
 interface RawJourneyCall {
   cancellation?: boolean;
+  forBoarding: boolean;
   timingPoint?: boolean;
   actualArrivalTime?: string | null;
   actualDepartureTime?: string | null;
@@ -141,7 +146,7 @@ interface RawServiceJourney {
     publicCode?: string | null;
     name?: string | null;
     transportMode?: string | null;
-    authority?: { id?: string | null } | null;
+    authority?: { id?: string | null; name?: string | null } | null;
   } | null;
   journeyPattern?: {
     id?: string | null;
@@ -151,9 +156,11 @@ interface RawServiceJourney {
 }
 
 interface CachedCall {
+  forBoarding: boolean;
   arrivalMs: number;
   departureMs: number;
   aimedMs: number;
+  delaySeconds: number;
   realtime: boolean;
   stopName: string;
   destination: string;
@@ -201,6 +208,8 @@ async function getRuterDiscoveryStopIds(
           lines: Array<{
             id: string;
             transportMode?: string | null;
+            publicCode?: string | null;
+            name?: string | null;
             journeyPatterns?: Array<{
               quays?: Array<{
                 stopPlace?: {
@@ -218,6 +227,7 @@ async function getRuterDiscoveryStopIds(
         const seenTermini = new Set<string>();
 
         for (const line of data.lines ?? []) {
+          if (isFlybussen(line)) continue;
           const isMetroOrTram =
             line.transportMode === 'metro' || line.transportMode === 'tram';
 
@@ -308,9 +318,39 @@ async function getRuterDiscoveryStopIds(
   return discoveryStopIdsPromise;
 }
 
+function sameCall(a: CachedCall, b: CachedCall): boolean {
+  return a.aimedMs === b.aimedMs && a.lat === b.lat && a.lon === b.lon;
+}
+
+/** Keep the active leg on its original clock when a poll changes its ETA. */
+function preserveActiveMotion(calls: CachedCall[], previous: CachedJourney, nowMs: number): void {
+  const index = previous.calls.findIndex((call) => nowMs <= call.departureMs);
+  if (index < 0 || nowMs < previous.startMs) return;
+  const oldStop = previous.calls[index];
+  const newIndex = calls.findIndex((call) => sameCall(call, oldStop));
+  if (newIndex < 0) return;
+  const stop = calls[newIndex];
+
+  if (nowMs >= oldStop.arrivalMs) {
+    stop.arrivalMs = Math.min(stop.arrivalMs, oldStop.arrivalMs);
+    // If a departure was reported late, start pulling away from the displayed stop.
+    stop.departureMs = Math.max(stop.departureMs, nowMs);
+    return;
+  }
+
+  const oldFrom = previous.calls[index - 1];
+  const from = calls[newIndex - 1];
+  if (!from || !oldFrom || !sameCall(from, oldFrom)) return;
+  from.arrivalMs = oldFrom.arrivalMs;
+  from.departureMs = oldFrom.departureMs;
+  stop.arrivalMs = oldStop.arrivalMs;
+  stop.departureMs = Math.max(stop.departureMs, stop.arrivalMs);
+}
+
 function parseServiceJourney(sj: RawServiceJourney, nowMs: number): CachedJourney | null {
   if (sj.line?.authority?.id !== 'RUT:Authority:RUT') return null;
 
+  if (isFlybussen(sj.line)) return null;
   const mode = mapVehicleMode(sj.line?.transportMode);
   if (mode === 'train') return null; // Trains already have live GPS
 
@@ -335,9 +375,11 @@ function parseServiceJourney(sj: RawServiceJourney, nowMs: number): CachedJourne
     const aimedMs = Date.parse(aimedStr);
 
     calls.push({
+      forBoarding: c.forBoarding,
       arrivalMs,
       departureMs,
       aimedMs: Number.isFinite(aimedMs) ? aimedMs : departureMs,
+      delaySeconds: Number.isFinite(aimedMs) ? Math.round((departureMs - aimedMs) / 1000) : 0,
       realtime: Boolean(c.realtime),
       stopName: c.quay?.name ?? '',
       destination: c.destinationDisplay?.frontText ?? '',
@@ -351,21 +393,15 @@ function parseServiceJourney(sj: RawServiceJourney, nowMs: number): CachedJourne
   const first = calls[0];
   const last = calls[calls.length - 1];
   if (modelDwell) {
-    const previousStop = cachedJourneyMap.get(sj.id)?.calls.find(
-      (call) => call.arrivalMs <= nowMs && nowMs <= call.departureMs,
-    );
     for (let i = 0; i < calls.length - 1; i++) {
       const call = calls[i];
       // Reserve travel time on short legs while keeping the live departure fixed.
       const gap = i === 0 ? Infinity : call.departureMs - calls[i - 1].departureMs;
       const dwell = Math.min(TARGET_DWELL_MS, Math.max(0, gap / 2));
       call.arrivalMs = Math.min(call.arrivalMs, call.departureMs - dwell);
-      // A revised departure can extend a stop the marker has already reached.
-      if (previousStop && previousStop.aimedMs === call.aimedMs &&
-          previousStop.lat === call.lat && previousStop.lon === call.lon) {
-        call.arrivalMs = Math.min(call.arrivalMs, previousStop.arrivalMs);
-      }
     }
+    const previous = cachedJourneyMap.get(sj.id);
+    if (previous) preserveActiveMotion(calls, previous, nowMs);
   }
 
   const patternId = sj.journeyPattern?.id ?? '';
@@ -477,6 +513,18 @@ export async function ensureRuterJourneysFresh(
   });
 }
 
+/** Integrate a linear speed ramp at each end and cruise through the middle. */
+function stopToStopProgress(elapsedMs: number, durationMs: number): number {
+  const accelerationMs = Math.min(5_000, durationMs * 0.15);
+  const brakingMs = Math.min(18_000, durationMs * 0.4);
+  // Area under the speed curve, expressed as time at cruising speed.
+  const travel = durationMs - (accelerationMs + brakingMs) / 2;
+  if (elapsedMs < accelerationMs) return elapsedMs ** 2 / (2 * accelerationMs * travel);
+  const remainingMs = durationMs - elapsedMs;
+  if (remainingMs < brakingMs) return 1 - remainingMs ** 2 / (2 * brakingMs * travel);
+  return (elapsedMs - accelerationMs / 2) / travel;
+}
+
 /**
  * Interpolates live positions for active Ruter (`RUT`) buses, trams, metro, and ferries
  * from the cached JourneyPlanner v3 `estimatedCalls` + `pointsOnLink` polylines.
@@ -515,7 +563,8 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
             ? computeBearing(curr.lat, curr.lon, next.lat, next.lon)
             : null,
           speed: 0,
-          delaySeconds: Math.round((curr.departureMs - curr.aimedMs) / 1000),
+          boardingSinceMs: journey.mode === 'bus' && next && curr.forBoarding ? curr.arrivalMs : undefined,
+          delaySeconds: curr.delaySeconds,
           monitored: curr.realtime,
           inCongestion: false,
           occupancyStatus: null,
@@ -526,7 +575,9 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
 
       if (next && nowMs > curr.departureMs && nowMs < next.arrivalMs) {
         const span = Math.max(1, next.arrivalMs - curr.departureMs);
-        const fraction = (nowMs - curr.departureMs) / span;
+        const elapsed = nowMs - curr.departureMs;
+        const easeAtStops = journey.mode === 'bus' || journey.mode === 'metro';
+        const fraction = easeAtStops ? stopToStopProgress(elapsed, span) : elapsed / span;
         const pos = interpolateAlongSegment(
           curr.lat,
           curr.lon,
@@ -534,6 +585,7 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
           next.lon,
           fraction,
           journey.polyline,
+          easeAtStops,
         );
 
         vehicles.push({
@@ -555,7 +607,7 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
           longitude: pos.lon,
           bearing: pos.bearing,
           speed: null,
-          delaySeconds: Math.round((curr.departureMs - curr.aimedMs) / 1000),
+          delaySeconds: curr.delaySeconds,
           monitored: curr.realtime || next.realtime,
           inCongestion: false,
           occupancyStatus: null,

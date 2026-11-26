@@ -12,9 +12,11 @@ import type {
 } from '../types/transit.ts';
 import {
   JOURNEY_PLANNER_ENDPOINT,
+  isFlybussen,
   readLineColor,
   type LinePresentation,
   mapVehicleMode,
+  type EnturLine,
   postGraphQL,
   postGraphQLBatched,
 } from './enturClient.ts';
@@ -57,6 +59,7 @@ const STOP_DEPARTURES_QUERY = `
             publicCode
             name
             transportMode
+            authority { name }
           }
         }
       }
@@ -152,6 +155,8 @@ const SERVICE_JOURNEY_DETAILS_QUERY = `
           frontText
         }
         quay {
+          latitude
+          longitude
           stopPlace {
             id
             name
@@ -166,7 +171,7 @@ const SERVICE_JOURNEY_DETAILS_QUERY = `
 
 const STOPS_IN_BBOX_QUERY = `
   query StopsInBbox($minLat: Float!, $maxLat: Float!, $minLon: Float!, $maxLon: Float!) {
-    stopPlacesByBbox(
+    quaysByBbox(
       minimumLatitude: $minLat
       maximumLatitude: $maxLat
       minimumLongitude: $minLon
@@ -177,7 +182,8 @@ const STOPS_IN_BBOX_QUERY = `
       name
       latitude
       longitude
-      transportMode
+      stopPlace { id }
+      lines { transportMode publicCode name authority { name } }
     }
   }
 `;
@@ -189,6 +195,9 @@ const STOP_LINES_QUERY = `
       quays {
         lines {
           id
+          publicCode
+          name
+          authority { name }
           transportMode
         }
       }
@@ -504,12 +513,7 @@ export async function fetchStopDepartures(
         destinationDisplay: { frontText?: string | null } | null;
         quay: { publicCode?: string | null } | null;
         serviceJourney: {
-          line: {
-            presentation?: LinePresentation | null;
-            publicCode?: string | null;
-            name?: string | null;
-            transportMode?: string | null;
-          } | null;
+          line: EnturLine | null;
         } | null;
       }>;
     } | null;
@@ -523,7 +527,8 @@ export async function fetchStopDepartures(
   const stopPlace = data.stopPlace;
   if (!stopPlace) return [];
 
-  return (stopPlace.estimatedCalls ?? []).map((call) => {
+  const calls = (stopPlace.estimatedCalls ?? []).filter((call) => !isFlybussen(call.serviceJourney?.line));
+  return calls.map((call) => {
     const aimedMs = Date.parse(call.aimedDepartureTime);
     const expectedTime = call.actualDepartureTime ?? call.expectedDepartureTime;
     const expectedMs = Date.parse(expectedTime);
@@ -577,6 +582,8 @@ export async function fetchVehicleJourney(
         expectedArrivalTime?: string | null;
         expectedDepartureTime?: string | null;
         quay?: {
+          latitude?: number | null;
+          longitude?: number | null;
           stopPlace?: {
             id?: string | null;
             name?: string | null;
@@ -596,8 +603,10 @@ export async function fetchVehicleJourney(
   const upcomingStops: JourneyStopCall[] = [];
 
   for (const call of sj.estimatedCalls ?? []) {
-    const sp = call.quay?.stopPlace;
-    if (!sp?.id || typeof sp.latitude !== 'number' || typeof sp.longitude !== 'number') {
+    const quay = call.quay;
+    const sp = quay?.stopPlace;
+    const point = typeof quay?.latitude === 'number' && typeof quay.longitude === 'number' ? quay : sp;
+    if (!sp?.id || typeof point?.latitude !== 'number' || typeof point.longitude !== 'number') {
       continue;
     }
     const expectedTime = call.expectedDepartureTime ?? call.expectedArrivalTime ?? null;
@@ -608,8 +617,8 @@ export async function fetchVehicleJourney(
     const stopCall: JourneyStopCall = {
       stopId: sp.id,
       name: sp.name ?? sp.id,
-      lat: sp.latitude,
-      lon: sp.longitude,
+      lat: point.latitude,
+      lon: point.longitude,
       aimedTime,
       expectedTime,
       passed,
@@ -656,12 +665,13 @@ export async function fetchStopsInBounds(
   signal?: AbortSignal,
 ): Promise<NetworkStop[]> {
   const data = await postGraphQL<{
-    stopPlacesByBbox: Array<{
+    quaysByBbox: Array<{
       id: string;
       name: string;
       latitude?: number | null;
       longitude?: number | null;
-      transportMode?: string[] | null;
+      stopPlace?: { id: string } | null;
+      lines: EnturLine[];
     }>;
   }>(
     JOURNEY_PLANNER_ENDPOINT,
@@ -676,15 +686,16 @@ export async function fetchStopsInBounds(
   );
 
   const stops: NetworkStop[] = [];
-  for (const sp of data.stopPlacesByBbox ?? []) {
-    if (typeof sp.latitude !== 'number' || typeof sp.longitude !== 'number') continue;
-    if (!(sp.transportMode ?? []).includes(mode)) continue;
+  for (const quay of data.quaysByBbox ?? []) {
+    if (!quay.stopPlace?.id || typeof quay.latitude !== 'number' || typeof quay.longitude !== 'number') continue;
+    if (!quay.lines.some((line) => line.transportMode === mode && !isFlybussen(line))) continue;
 
     stops.push({
-      id: sp.id,
-      name: sp.name,
-      lat: sp.latitude,
-      lon: sp.longitude,
+      id: quay.id,
+      stopPlaceId: quay.stopPlace.id,
+      name: quay.name,
+      lat: quay.latitude,
+      lon: quay.longitude,
       mode,
     });
 
@@ -706,7 +717,7 @@ export async function fetchStopWithRoutes(
       stopPlace: {
         id: string;
         quays?: Array<{
-          lines?: Array<{ id: string; transportMode?: string | null }> | null;
+          lines?: Array<EnturLine & { id: string }> | null;
         }> | null;
       } | null;
     }>(JOURNEY_PLANNER_ENDPOINT, STOP_LINES_QUERY, { id: stopPlaceId }, signal),
@@ -717,7 +728,7 @@ export async function fetchStopWithRoutes(
     new Set(
       (stopLinesData.stopPlace?.quays ?? [])
         .flatMap((q) => q.lines ?? [])
-        .filter((l) => !targetJpMode || l.transportMode === targetJpMode)
+        .filter((l) => (!targetJpMode || l.transportMode === targetJpMode) && !isFlybussen(l))
         .map((l) => l.id),
     ),
   ).slice(0, 18);

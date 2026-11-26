@@ -108,6 +108,7 @@ export function interpolateAlongSegment(
   nextLon: number,
   fraction: number,
   polyline: LngLat[] | null,
+  useQuayEndpoints = false,
 ): { lat: number; lon: number; bearing: number } {
   const clamped = Math.max(0, Math.min(1, fraction));
 
@@ -116,11 +117,17 @@ export function interpolateAlongSegment(
     const { idx: idx1 } = findNearestCoordIndex(polyline, nextLon, nextLat, idx0);
 
     if (idx1 > idx0) {
+      // The route centreline can run several metres from the boarding point.
+      const pointAt = (idx: number): LngLat => {
+        if (useQuayEndpoints && idx === idx0) return [prevLon, prevLat];
+        if (useQuayEndpoints && idx === idx1) return [nextLon, nextLat];
+        return polyline[idx];
+      };
       const cumDist: number[] = [0];
       let total = 0;
       for (let i = idx0; i < idx1; i++) {
-        const [aLon, aLat] = polyline[i];
-        const [bLon, bLat] = polyline[i + 1];
+        const [aLon, aLat] = pointAt(i);
+        const [bLon, bLat] = pointAt(i + 1);
         total += approxDistKm(aLon, aLat, bLon, bLat);
         cumDist.push(total);
       }
@@ -131,8 +138,8 @@ export function interpolateAlongSegment(
           if (target <= cumDist[i + 1] || i === cumDist.length - 2) {
             const segLen = Math.max(1e-6, cumDist[i + 1] - cumDist[i]);
             const segFrac = (target - cumDist[i]) / segLen;
-            const [aLon, aLat] = polyline[idx0 + i];
-            const [bLon, bLat] = polyline[idx0 + i + 1];
+            const [aLon, aLat] = pointAt(idx0 + i);
+            const [bLon, bLat] = pointAt(idx0 + i + 1);
             return {
               lat: aLat + (bLat - aLat) * segFrac,
               lon: aLon + (bLon - aLon) * segFrac,
