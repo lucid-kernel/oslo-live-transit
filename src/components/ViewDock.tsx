@@ -43,6 +43,8 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
     };
   }, [selectedMode]);
   const total = stats?.total ?? '–';
+  const isScooter = selectedMode === 'scooter';
+  const scooterColor = '#c4a2ff';
   const isAll = selectedMode === 'all';
 
   return (
@@ -98,12 +100,21 @@ export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 
             </button>
           );
         })}
-        <button type="button" aria-pressed={selectedMode === 'scooter'}
-          className={`view-dock-item${selectedMode === 'scooter' ? ' active' : ''}`}
-          title="Scooter (Shortcut: 7)" onClick={() => onSelectMode(selectedMode === 'scooter' ? previousTransit : 'scooter')}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c4a2ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="5" cy="18" r="3" /><circle cx="19" cy="18" r="3" /><path d="M5 18h7l5-8m2 8L16 4h-4" />
-          </svg>
+        <button
+          type="button"
+          aria-pressed={isScooter}
+          className={`view-dock-item${isScooter ? ' active' : ''}`}
+          style={{ '--view-accent': scooterColor } as React.CSSProperties}
+          title="Scooter (Shortcut: 7)"
+          onClick={() => onSelectMode(isScooter ? previousTransit : 'scooter')}
+        >
+          <span className="view-dock-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isScooter ? scooterColor : 'currentColor'}
+              strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="5" cy="18" r="3" /><circle cx="19" cy="18" r="3" /><path d="M5 18h7l5-8m2 8L16 4h-4" />
+            </svg>
+            <span className="view-dock-dot" style={{ backgroundColor: scooterColor }} aria-hidden="true" />
+          </span>
           <span className="view-dock-label">Scooter</span>
         </button>
       </div>

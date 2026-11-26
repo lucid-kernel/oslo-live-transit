@@ -1393,6 +1393,7 @@ body,
   .view-dock {
     display: grid;
     grid-auto-flow: column;
+    align-items: stretch;
     grid-auto-columns: minmax(54px, 1fr);
     overflow-x: auto;
     scroll-snap-type: x proximity;
@@ -1403,7 +1404,7 @@ body,
 
   .view-dock-item {
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 3px;
     padding: 7px 2px 6px;
     border-radius: 10px;
