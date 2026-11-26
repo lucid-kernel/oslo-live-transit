@@ -16,6 +16,7 @@ export interface LiveVehicle {
   serviceJourneyId?: string;
   lineRef: string;
   lineCode: string;
+  lineColor?: string;
   lineName: string;
   destination: string;
   origin: string | null;
@@ -52,6 +53,7 @@ export interface StopDeparture {
   stopId: string;
   stopName: string;
   lineCode: string;
+  lineColor?: string;
   lineName: string;
   mode: TransitMode;
   destination: string;
@@ -83,6 +85,7 @@ export type RailCategory = 'local' | 'regional' | 'long_distance' | 'airport';
 export interface NetworkRoute {
   id: string;
   lineCode: string;
+  lineColor?: string;
   lineName: string;
   mode: TransitMode;
   operator?: string;

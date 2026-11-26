@@ -114,7 +114,7 @@ export function buildNetworkRouteFeatures(
           id: r.id,
           lineCode: r.lineCode,
           mode: r.mode,
-          color: getRouteColor(r.mode, r.lineCode, r.operatorName ?? r.operator, r.railCategory),
+          color: getRouteColor(r),
         },
       })),
   };

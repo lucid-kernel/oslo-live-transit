@@ -20,6 +20,15 @@ export const CODESPACE_OPERATOR_NAMES: Record<string, string> = {
   NOR: 'NOR-WAY Bussekspress',
 };
 
+export interface LinePresentation {
+  colour?: string | null;
+}
+
+export function readLineColor(presentation?: LinePresentation | null): string | undefined {
+  const hex = presentation?.colour?.trim().replace(/^#/, '');
+  return hex && /^[0-9a-f]{6}$/i.test(hex) ? `#${hex.toUpperCase()}` : undefined;
+}
+
 /** Maps Entur SIRI/NeTEx transport mode strings to normalized `TransitMode`. */
 export function mapVehicleMode(rawMode: string | null | undefined): TransitMode {
   switch (rawMode?.toUpperCase()) {

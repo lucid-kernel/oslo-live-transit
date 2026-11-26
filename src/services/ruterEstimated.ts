@@ -1,6 +1,8 @@
 import type { BoundingBox, LiveVehicle, TransitMode } from '../types/transit.ts';
 import {
   JOURNEY_PLANNER_ENDPOINT,
+  readLineColor,
+  type LinePresentation,
   mapVehicleMode,
   postGraphQL,
   postGraphQLBatched,
@@ -71,6 +73,7 @@ const RUTER_ACTIVE_JOURNEYS_QUERY = `
         serviceJourney {
           id
           line {
+            presentation { colour }
             id
             publicCode
             name
@@ -133,6 +136,7 @@ interface RawJourneyCall {
 interface RawServiceJourney {
   id: string;
   line?: {
+    presentation?: LinePresentation | null;
     id?: string | null;
     publicCode?: string | null;
     name?: string | null;
@@ -162,6 +166,7 @@ interface CachedJourney {
   mode: TransitMode;
   lineRef: string;
   lineCode: string;
+  lineColor?: string;
   lineName: string;
   origin: string | null;
   destination: string;
@@ -382,6 +387,7 @@ function parseServiceJourney(sj: RawServiceJourney, nowMs: number): CachedJourne
     mode,
     lineRef: sj.line?.id ?? '',
     lineCode,
+    lineColor: readLineColor(sj.line?.presentation),
     lineName: sj.line?.name ?? lineCode,
     origin: calls[0].stopName || null,
     destination,
@@ -495,6 +501,7 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
           serviceJourneyId: journey.id,
           lineRef: journey.lineRef,
           lineCode: journey.lineCode,
+          lineColor: journey.lineColor,
           lineName: journey.lineName,
           destination: curr.destination || journey.destination,
           origin: journey.origin,
@@ -536,6 +543,7 @@ export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVe
           serviceJourneyId: journey.id,
           lineRef: journey.lineRef,
           lineCode: journey.lineCode,
+          lineColor: journey.lineColor,
           lineName: journey.lineName,
           destination: curr.destination || journey.destination,
           origin: journey.origin,

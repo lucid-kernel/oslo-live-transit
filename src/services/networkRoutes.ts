@@ -12,6 +12,8 @@ import type {
 } from '../types/transit.ts';
 import {
   JOURNEY_PLANNER_ENDPOINT,
+  readLineColor,
+  type LinePresentation,
   mapVehicleMode,
   postGraphQL,
   postGraphQLBatched,
@@ -51,6 +53,7 @@ const STOP_DEPARTURES_QUERY = `
         }
         serviceJourney {
           line {
+            presentation { colour }
             publicCode
             name
             transportMode
@@ -101,6 +104,7 @@ const NORWAY_RAIL_LINES_QUERY = `
 const NETWORK_LINES_BY_IDS_QUERY = `
   query NetworkLinesByIds($ids: [ID]) {
     lines(ids: $ids) {
+      presentation { colour }
       id
       publicCode
       name
@@ -193,6 +197,7 @@ const STOP_LINES_QUERY = `
 `;
 
 interface RawNetworkLine {
+  presentation?: LinePresentation | null;
   id: string;
   publicCode?: string | null;
   name?: string | null;
@@ -404,6 +409,7 @@ function buildNetworkData(
     routes.push({
       id: line.id,
       lineCode,
+      lineColor: readLineColor(line.presentation),
       lineName,
       mode: lineMode,
       operator: operatorName,
@@ -499,6 +505,7 @@ export async function fetchStopDepartures(
         quay: { publicCode?: string | null } | null;
         serviceJourney: {
           line: {
+            presentation?: LinePresentation | null;
             publicCode?: string | null;
             name?: string | null;
             transportMode?: string | null;
@@ -532,6 +539,7 @@ export async function fetchStopDepartures(
       stopId: stopPlace.id,
       stopName: stopPlace.name,
       lineCode,
+      lineColor: readLineColor(line?.presentation),
       lineName: line?.name ?? lineCode,
       mode: mapVehicleMode(line?.transportMode),
       destination: call.destinationDisplay?.frontText ?? 'Unknown',

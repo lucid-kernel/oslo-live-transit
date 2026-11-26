@@ -1,4 +1,4 @@
-import type { LiveVehicle, RailCategory, TransitMode } from '../types/transit.ts';
+import type { LiveVehicle, NetworkRoute, RailCategory, TransitMode } from '../types/transit.ts';
 
 export interface ModeMeta {
   mode: TransitMode;
@@ -136,12 +136,10 @@ export const RAIL_CATEGORY_LABELS: Record<RailCategory, string> = {
 };
 
 /** Returns Oslo-authentic color for a network route. */
-export function getRouteColor(
-  mode: TransitMode,
-  lineCode: string,
-  operator?: string,
-  railCategory?: RailCategory,
-): string {
+export function getRouteColor({
+  mode, lineCode, lineColor, operator, operatorName, railCategory,
+}: Pick<NetworkRoute, 'mode' | 'lineCode' | 'lineColor' | 'operator' | 'operatorName' | 'railCategory'>): string {
+  if (mode === 'bus' && lineColor) return lineColor;
   if (mode === 'metro' && TBANE_LINE_COLORS[lineCode]) {
     return TBANE_LINE_COLORS[lineCode];
   }
@@ -149,7 +147,7 @@ export function getRouteColor(
     if (railCategory && RAIL_CATEGORY_COLORS[railCategory]) {
       return RAIL_CATEGORY_COLORS[railCategory];
     }
-    if (lineCode.startsWith('FLY') || operator?.toLowerCase().includes('flytoget')) {
+    if (lineCode.startsWith('FLY') || (operatorName ?? operator)?.toLowerCase().includes('flytoget')) {
       return '#F97316';
     }
   }
@@ -158,18 +156,10 @@ export function getRouteColor(
 
 /** Returns Oslo-authentic color, distinguishing T-bane lines 1–5 and Flytoget orange. */
 export function getVehicleColor(
-  vehicle: Pick<LiveVehicle, 'mode' | 'lineCode' | 'codespace' | 'operator'>,
+  vehicle: Pick<LiveVehicle, 'mode' | 'lineCode' | 'lineColor' | 'codespace' | 'operator'>,
 ): string {
-  if (vehicle.mode === 'metro') {
-    return getRouteColor('metro', vehicle.lineCode);
-  }
-  if (
-    vehicle.mode === 'train' &&
-    (vehicle.codespace === 'FLT' || vehicle.operator.toLowerCase().includes('flytoget'))
-  ) {
-    return '#F97316';
-  }
-  return MODE_META[vehicle.mode].color;
+  if (vehicle.mode === 'train' && vehicle.codespace === 'FLT') return '#F97316';
+  return getRouteColor(vehicle);
 }
 
 export function formatSpeedKmh(speedMps: number | null): string {

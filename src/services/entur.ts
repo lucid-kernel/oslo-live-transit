@@ -10,6 +10,8 @@ import type {
 import {
   CODESPACE_OPERATOR_NAMES,
   VEHICLES_ENDPOINT,
+  readLineColor,
+  type LinePresentation,
   mapVehicleMode,
   postGraphQL,
 } from './enturClient.ts';
@@ -54,6 +56,7 @@ const VEHICLE_FIELDS = `
     id
   }
   line {
+    presentation { colour }
     lineRef
     lineName
     publicCode
@@ -101,6 +104,7 @@ interface RawVehicle {
   mode: string | null;
   serviceJourney?: { id?: string | null } | null;
   line: {
+    presentation?: LinePresentation | null;
     lineRef?: string | null;
     lineName?: string | null;
     publicCode?: string | null;
@@ -216,6 +220,7 @@ async function fetchGpsVehicles(
       serviceJourneyId: raw.serviceJourney?.id ?? undefined,
       lineRef: raw.line?.lineRef ?? '',
       lineCode,
+      lineColor: readLineColor(raw.line?.presentation),
       lineName: raw.line?.lineName ?? lineCode,
       destination: raw.destinationName || 'In service',
       origin: raw.originName ?? null,

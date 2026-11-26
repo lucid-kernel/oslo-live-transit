@@ -144,7 +144,7 @@ export function HubDeparturesCard({
       ) : (
         <div className="departures-list">
           {upcoming.map((dep, idx) => {
-            const color = getRouteColor(dep.mode, dep.lineCode);
+            const color = getRouteColor(dep);
             const badgeStyle = getBadgeStyle(color);
             const delayMin = Math.round(dep.delaySeconds / 60);
             return (
