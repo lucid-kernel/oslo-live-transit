@@ -3,6 +3,7 @@ import { AlertCircle } from 'lucide-react';
 import type {
   BoundingBox,
   LiveVehicle,
+  MapView,
   NetworkData,
   OsloHub,
   RailCategory,
@@ -13,28 +14,32 @@ import { FilterBar } from './components/FilterBar.tsx';
 import { ViewDock } from './components/ViewDock.tsx';
 import { VehicleDetailCard } from './components/VehicleDetailCard.tsx';
 import { HubDeparturesCard } from './components/HubDeparturesCard.tsx';
-import { TransitMap } from './components/TransitMap.tsx';
+import { ScooterView } from './components/ScooterView.tsx';
+import { TransitMap, type TransitCamera } from './components/TransitMap.tsx';
+import { LocalLayersControl } from './components/LocalLayersControl.tsx';
+import { useLayerPreferences, useLocalLayers } from './hooks/useLocalLayers.ts';
 import { BootScreen } from './components/BootScreen.tsx';
 import { OSLO_HUBS } from './services/entur.ts';
 import { useLiveVehicles } from './hooks/useLiveVehicles.ts';
 import { BUS_STOPS_MIN_ZOOM, useNetworkOverlays } from './hooks/useNetworkOverlays.ts';
 import { useSelectionDetails } from './hooks/useSelectionDetails.ts';
 
-const VALID_MODES: ReadonlySet<string> = new Set(['all', 'bus', 'tram', 'train', 'metro', 'ferry']);
-const SHORTCUT_MODE_MAP: Record<string, TransitMode | 'all'> = {
+const VALID_MODES: ReadonlySet<string> = new Set(['all', 'bus', 'tram', 'train', 'metro', 'ferry', 'scooter']);
+const SHORTCUT_MODE_MAP: Record<string, MapView> = {
   '1': 'all',
   '2': 'bus',
   '3': 'tram',
   '4': 'train',
   '5': 'metro',
   '6': 'ferry',
+  '7': 'scooter',
 };
 
-function readInitialUrlState(): { mode: TransitMode | 'all'; query: string } {
+function readInitialUrlState(): { mode: MapView; query: string } {
   if (typeof window === 'undefined') return { mode: 'all', query: '' };
   const params = new URLSearchParams(window.location.search);
   const rawMode = params.get('mode') ?? 'all';
-  const mode = VALID_MODES.has(rawMode) ? (rawMode as TransitMode | 'all') : 'all';
+  const mode = VALID_MODES.has(rawMode) ? (rawMode as MapView) : 'all';
   const query = params.get('q') ?? '';
   return { mode, query };
 }
@@ -60,10 +65,53 @@ function classifyTrainLine(lineCode: string): RailCategory {
 
 export function App() {
   const [initialUrlState] = useState(readInitialUrlState);
-  const [selectedMode, setSelectedMode] = useState<TransitMode | 'all'>(initialUrlState.mode);
-  const [selectedRailCategory, setSelectedRailCategory] = useState<RailCategory | 'all'>('all');
+  const [view, setView] = useState(initialUrlState.mode);
+  const previousTransit = useRef<TransitMode | 'all'>('all');
+  const savedCamera = useRef<TransitCamera | null>(null);
+  const preferences = useLayerPreferences();
   const [searchQuery, setSearchQuery] = useState(initialUrlState.query);
+  const changeView = (next: MapView) => {
+    if (view !== 'scooter') previousTransit.current = view;
+    setView(next);
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey ||
+        (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.matches('input, select, textarea')))) return;
+      const next = SHORTCUT_MODE_MAP[event.key];
+      if (next) changeView(next);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [view]);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (view === 'all') url.searchParams.delete('mode');
+    else url.searchParams.set('mode', view);
+    if (view === 'scooter' || !searchQuery.trim()) url.searchParams.delete('q');
+    else url.searchParams.set('q', searchQuery);
+    window.history.replaceState(null, '', url);
+  }, [view, searchQuery]);
 
+  if (view === 'scooter') return (
+    <main className="app-shell scooter-view">
+      <ScooterView />
+      <ViewDock selectedMode={view} onSelectMode={changeView} previousTransit={previousTransit.current} stats={null} />
+    </main>
+  );
+  return <TransitView selectedMode={view} setSelectedMode={changeView} searchQuery={searchQuery}
+    setSearchQuery={setSearchQuery} savedCamera={savedCamera} preferences={preferences} />;
+}
+
+function TransitView({ selectedMode, setSelectedMode, searchQuery, setSearchQuery, savedCamera, preferences }: {
+  selectedMode: TransitMode | 'all';
+  setSelectedMode: (view: MapView) => void;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  savedCamera: React.RefObject<TransitCamera | null>;
+  preferences: ReturnType<typeof useLayerPreferences>;
+}) {
+  const [selectedRailCategory, setSelectedRailCategory] = useState<RailCategory | 'all'>('all');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastSelectedVehicle, setLastSelectedVehicle] = useState<LiveVehicle | null>(null);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -71,6 +119,7 @@ export function App() {
   const [selectedHub, setSelectedHub] = useState<OsloHub | null>(null);
 
   const [viewport, setViewport] = useState<{ bbox: BoundingBox; zoom: number } | null>(null);
+  const localLayers = useLocalLayers(viewport, selectedHub, selectedMode, preferences);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
@@ -79,18 +128,6 @@ export function App() {
     const timer = window.setTimeout(() => setBootTimedOut(true), 20000);
     return () => window.clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    if (selectedMode === 'all') params.delete('mode');
-    else params.set('mode', selectedMode);
-    if (searchQuery.trim() === '') params.delete('q');
-    else params.set('q', searchQuery);
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
-    window.history.replaceState(null, '', nextUrl);
-  }, [selectedMode, searchQuery]);
 
   const { vehicles, stats, isLoading, hasInitialLoad, error, refresh } =
     useLiveVehicles(selectedMode);
@@ -210,10 +247,6 @@ export function App() {
         return;
       }
 
-      const nextMode = SHORTCUT_MODE_MAP[e.key];
-      if (nextMode) {
-        setSelectedMode(nextMode);
-      }
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -231,6 +264,8 @@ export function App() {
       />
 
       <TransitMap
+        savedCamera={savedCamera}
+        localPoints={localLayers.points}
         vehicles={filteredVehicles}
         networkData={activeMapNetworkData}
         vehicleJourney={vehicleJourney}
@@ -281,6 +316,8 @@ export function App() {
           isBusStopZoomReady={Boolean(viewport && viewport.zoom >= BUS_STOPS_MIN_ZOOM)}
         />
 
+        <LocalLayersControl layers={localLayers} zoom={viewport?.zoom ?? 0} />
+
         {error && (
           <div className="error-banner" role="alert">
             <AlertCircle size={15} />
@@ -314,6 +351,7 @@ export function App() {
       {!selectedVehicle && selectedHub && (
         <div className="hud-right-drawer">
           <HubDeparturesCard
+            layers={localLayers}
             key={selectedHub.id}
             hub={selectedHub}
             departures={hubDepartures}

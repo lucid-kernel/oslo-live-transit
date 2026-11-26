@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import type { LocalLayers } from '../hooks/useLocalLayers.ts';
+import { StopLayerDetails } from './StopLayerDetails.tsx';
 import { ChevronDown, ChevronUp, MapPin, RotateCw, X } from 'lucide-react';
 import type { OsloHub, StopDeparture } from '../types/transit.ts';
 import {
@@ -10,6 +12,7 @@ import {
 } from './transitTheme.ts';
 
 interface HubDeparturesCardProps {
+  layers: LocalLayers;
   hub: OsloHub;
   departures: StopDeparture[];
   isLoading: boolean;
@@ -19,6 +22,7 @@ interface HubDeparturesCardProps {
 }
 
 export function HubDeparturesCard({
+  layers,
   hub,
   departures,
   isLoading,
@@ -61,6 +65,7 @@ export function HubDeparturesCard({
           <div className="detail-mini-text">
             <span className="detail-mini-dest">{hub.name}</span>
             <span className="detail-mini-meta">
+              {layers.stopNotices.length > 0 && <strong className="mini-notice">{layers.stopNotices.length} {layers.stopNotices.length === 1 ? 'notice' : 'notices'} · </strong>}
               {nextDep
                 ? `Next: ${nextDep.lineCode} ${nextDep.destination} · ${nextCountdown ?? formatOsloTime(nextDep.expectedTime).slice(0, 5)}`
                 : isLoading
@@ -126,6 +131,8 @@ export function HubDeparturesCard({
           </button>
         </div>
       </div>
+
+      <StopLayerDetails layers={layers} />
 
       {isLoading && upcoming.length === 0 ? (
         <div className="detail-subline">Loading live departures…</div>

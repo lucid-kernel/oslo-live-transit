@@ -1,5 +1,7 @@
 export type TransitMode = 'bus' | 'tram' | 'train' | 'metro' | 'ferry';
 
+export type MapView = TransitMode | 'all' | 'scooter';
+
 export type PositionSource = 'gps' | 'estimated';
 
 export interface BoundingBox {
@@ -125,4 +127,32 @@ export interface VehicleJourneyDetails {
   upcomingStops: JourneyStopCall[];
   endStationName: string | null;
   endStationEta: string | null;
+}
+
+export interface BikeStation {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  bikes: number;
+  docks: number;
+  capacity?: number;
+}
+
+export interface AvailableScooter {
+  id: string;
+  lat: number;
+  lon: number;
+  operator: string;
+}
+
+export interface StopNotice {
+  id: string;
+  summary: string;
+  detail: string;
+  lines: string[];
+}
+
+export interface DisruptedStop extends OsloHub {
+  notices: StopNotice[];
 }

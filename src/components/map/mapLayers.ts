@@ -9,6 +9,8 @@ import {
   buildVehicleFeatures,
 } from './geojson.ts';
 
+export const DARK_MATTER_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
 function createHeadingArrowImage(): ImageData {
   const size = 48;
   const canvas = document.createElement('canvas');

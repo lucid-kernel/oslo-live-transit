@@ -24,7 +24,10 @@ import {
   buildVehicleFeatures,
   type VehicleAnimState,
 } from './map/geojson.ts';
-import { addTransitMapLayers } from './map/mapLayers.ts';
+import { setLocalPopupContent } from './map/localPopup.ts';
+import { addLocalLayers, LOCAL_LAYERS } from './map/localLayers.ts';
+import type { PointFeatureCollection } from './map/geojson.ts';
+import { addTransitMapLayers, DARK_MATTER_STYLE } from './map/mapLayers.ts';
 import {
   createGpsTrackMap,
   FRAME_INTERVAL_MS,
@@ -32,7 +35,6 @@ import {
   type GpsTrackState,
 } from './map/vehicleMotion.ts';
 
-const DARK_MATTER_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
 const OSLO_VIEW: maplibregl.CameraOptions = {
   center: [OSLO_CENTER.longitude, OSLO_CENTER.latitude], zoom: 11.7, pitch: 15, bearing: 0,
@@ -41,7 +43,14 @@ const NORWAY_VIEW: maplibregl.CameraOptions = {
   center: [10.5, 62.6], zoom: 4.8, pitch: 0, bearing: 0,
 };
 
+export interface TransitCamera {
+  nationalRail: boolean;
+  camera: maplibregl.CameraOptions;
+}
+
 interface TransitMapProps {
+  savedCamera: React.RefObject<TransitCamera | null>;
+  localPoints: PointFeatureCollection;
   vehicles: LiveVehicle[];
   networkData: NetworkData | null;
   vehicleJourney: VehicleJourneyDetails | null;
@@ -102,6 +111,8 @@ function fitMapToCoordinates(
 
 /** Full-screen MapLibre GL JS transit map with continuous vehicle motion and interactive network layers. */
 export function TransitMap({
+  savedCamera,
+  localPoints,
   vehicles,
   networkData,
   vehicleJourney,
@@ -118,6 +129,9 @@ export function TransitMap({
   onViewportChange,
   onMapReady,
 }: TransitMapProps) {
+  const initialCamera = useRef(savedCamera.current?.nationalRail === nationalRail ? savedCamera.current.camera : null);
+  const restoredQuery = useRef(initialCamera.current ? searchQuery : null);
+  const lastNationalRail = useRef(nationalRail);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapReadyRef = useRef(false);
@@ -126,6 +140,24 @@ export function TransitMap({
     x: number;
     y: number;
   } | null>(null);
+
+  const localPointsRef = useRef(localPoints);
+  localPointsRef.current = localPoints;
+  const localPopupRef = useRef<{ popup: maplibregl.Popup; id: string; kind: string } | null>(null);
+  useEffect(() => {
+    if (!mapReadyRef.current || !mapRef.current) return;
+    syncGeoJsonSource(mapRef.current, 'local-layers', localPoints);
+    const selection = localPopupRef.current;
+    if (!selection?.popup.isOpen()) return;
+    const feature = localPoints.features.find(({ properties }) =>
+      properties.kind === selection.kind && properties.id === selection.id);
+    if (feature) {
+      selection.popup.setLngLat(feature.geometry.coordinates);
+      setLocalPopupContent(selection.popup, feature.properties);
+    } else {
+      selection.popup.remove();
+    }
+  }, [localPoints]);
 
   const vehiclesRef = useRef<LiveVehicle[]>([]);
   const vehiclesByIdRef = useRef<Map<string, LiveVehicle>>(new Map());
@@ -165,7 +197,7 @@ export function TransitMap({
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: DARK_MATTER_STYLE,
-      ...OSLO_VIEW,
+      ...(initialCamera.current ?? (nationalRail ? NORWAY_VIEW : OSLO_VIEW)),
       maxZoom: 18,
       minZoom: 4.0,
       attributionControl: { compact: true },
@@ -227,14 +259,13 @@ export function TransitMap({
 
     map.on('load', () => {
       addTransitMapLayers(map);
+      addLocalLayers(map);
+      syncGeoJsonSource(map, 'local-layers', localPointsRef.current);
 
       const vehicleHitLayers = ['vehicles-body', 'vehicles-halo'];
       const canHover = () =>
         typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
 
-      map.on('mouseenter', vehicleHitLayers, () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
       map.on('mousemove', vehicleHitLayers, (e) => {
         if (!canHover()) return;
         const id = e.features?.[0]?.properties?.id as string | undefined;
@@ -251,74 +282,51 @@ export function TransitMap({
         }
       });
       map.on('mouseleave', vehicleHitLayers, () => {
-        map.getCanvas().style.cursor = '';
         setHoveredVehicle(null);
       });
 
-      map.on('click', vehicleHitLayers, (e) => {
-        setHoveredVehicle(null);
-        const id = e.features?.[0]?.properties?.id as string | undefined;
-        const vehicle = id ? vehiclesByIdRef.current.get(id) : undefined;
-        if (vehicle) onSelectVehicleRef.current(vehicle);
-      });
-
-      map.on('mouseenter', 'hubs-circle', () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', 'hubs-circle', () => {
-        map.getCanvas().style.cursor = '';
-      });
-      map.on('click', 'hubs-circle', (e) => {
-        const hubId = e.features?.[0]?.properties?.id as string | undefined;
-        const hub = OSLO_HUBS.find((h) => h.id === hubId) ?? null;
-        if (hub) {
-          onSelectHubRef.current(hub);
-          if (map.getZoom() < 13.0) {
-            map.easeTo({
-              center: [hub.longitude, hub.latitude],
-              zoom: 13.5,
-              duration: 650,
-              essential: true,
-            });
-          }
-        }
-      });
-
-      map.on('mouseenter', 'network-stops-circle', () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', 'network-stops-circle', () => {
-        map.getCanvas().style.cursor = '';
-      });
-
-      map.on('click', 'network-stops-circle', (e) => {
-        const stopId = e.features?.[0]?.properties?.id as string | undefined;
-        const stop = stopId ? networkStopsByIdRef.current.get(stopId) : undefined;
-        if (stop) {
-          onSelectHubRef.current({
-            id: stop.stopPlaceId ?? stop.id,
-            name: stop.name,
-            latitude: stop.lat,
-            longitude: stop.lon,
-          });
-          if (map.getZoom() < 13.0 && stop.mode !== 'bus') {
-            map.easeTo({
-              center: [stop.lon, stop.lat],
-              zoom: 13.5,
-              duration: 650,
-              essential: true,
-            });
-          }
-        }
-      });
+      const selectableLayers = [...vehicleHitLayers, 'hubs-circle', 'network-stops-circle', ...LOCAL_LAYERS];
+      map.on('mouseenter', selectableLayers, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', selectableLayers, () => { map.getCanvas().style.cursor = ''; });
 
       map.on('click', (e) => {
-        const hits = map.queryRenderedFeatures(e.point, {
-          layers: ['vehicles-body', 'vehicles-halo', 'hubs-circle', 'network-stops-circle'],
-        });
-        if (hits.length === 0) {
+        const [hit] = map.queryRenderedFeatures(e.point, { layers: selectableLayers });
+        localPopupRef.current?.popup.remove();
+        setHoveredVehicle(null);
+        if (!hit || hit.geometry.type !== 'Point') {
           onSelectVehicleRef.current(null);
           onSelectHubRef.current(null);
+          return;
+        }
+        const { id, kind, label } = hit.properties;
+        const [lon, lat] = hit.geometry.coordinates;
+        if (kind === 'bike-stations' || kind === 'available-scooters' || kind === 'notice-overview') {
+          const popup = new maplibregl.Popup({ className: 'mobility-popup', offset: 9 })
+            .setLngLat([lon, lat]);
+          setLocalPopupContent(popup, hit.properties);
+          popup.addTo(map);
+          localPopupRef.current = { popup, id, kind };
+          return;
+        }
+        if (vehicleHitLayers.includes(hit.layer.id)) {
+          const vehicle = vehiclesByIdRef.current.get(id);
+          if (vehicle) onSelectVehicleRef.current(vehicle);
+          return;
+        }
+        const stop = networkStopsByIdRef.current.get(id);
+        let hub: OsloHub | undefined;
+        if (hit.layer.id === 'stop-notices') {
+          hub = { id, name: label, latitude: lat, longitude: lon };
+        } else if (hit.layer.id === 'hubs-circle') {
+          hub = OSLO_HUBS.find(h => h.id === id);
+        } else if (stop) {
+          hub = { id: stop.stopPlaceId ?? stop.id, name: stop.name, latitude: stop.lat, longitude: stop.lon };
+        }
+        if (hub) {
+          onSelectHubRef.current(hub);
+          if (map.getZoom() < 13 && stop?.mode !== 'bus') {
+            map.easeTo({ center: [hub.longitude, hub.latitude], zoom: 13.5, duration: 650, essential: true });
+          }
         }
       });
 
@@ -430,6 +438,9 @@ export function TransitMap({
       canvasContainer.removeEventListener('wheel', onWheel, { capture: true });
       if (animFrameId !== null) cancelAnimationFrame(animFrameId);
       resizeObserver.disconnect();
+      savedCamera.current = { nationalRail: lastNationalRail.current, camera: {
+        center: map.getCenter(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing(),
+      } };
       mapReadyRef.current = false;
       map.remove();
       mapRef.current = null;
@@ -574,6 +585,8 @@ export function TransitMap({
   }, [followVehicleId]);
 
   useEffect(() => {
+    if (restoredQuery.current === searchQuery) return;
+    restoredQuery.current = null;
     const q = searchQuery.trim();
     if (!q) return;
 
@@ -692,6 +705,8 @@ export function TransitMap({
   }, [selectedHubId]);
 
   useEffect(() => {
+    if (lastNationalRail.current === nationalRail) return;
+    lastNationalRail.current = nationalRail;
     mapRef.current?.flyTo({
       ...(nationalRail ? NORWAY_VIEW : OSLO_VIEW),
       duration: 1100,

@@ -1,21 +1,27 @@
+import { useEffect, useRef } from 'react';
 import { Layers } from 'lucide-react';
-import type { TransitMode, VehicleStats } from '../types/transit.ts';
+import type { MapView, TransitMode, VehicleStats } from '../types/transit.ts';
 import { ModeIcon } from './ModeIcon.tsx';
 import { MODE_META, MODE_ORDER } from './transitTheme.ts';
 
 interface ViewDockProps {
-  selectedMode: TransitMode | 'all';
-  onSelectMode: (mode: TransitMode | 'all') => void;
+  selectedMode: MapView;
+  previousTransit?: TransitMode | 'all';
+  onSelectMode: (mode: MapView) => void;
   stats: VehicleStats | null;
 }
 
-export function ViewDock({ selectedMode, onSelectMode, stats }: ViewDockProps) {
-  const total = stats?.total ?? 0;
+export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 'all' }: ViewDockProps) {
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bar.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [selectedMode]);
+  const total = stats?.total ?? '–';
   const isAll = selectedMode === 'all';
 
   return (
     <nav className="hud-bottom-dock" aria-label="Transit views">
-      <div className="glass-panel view-dock" role="toolbar" aria-label="Select map view">
+      <div ref={bar} className="glass-panel view-dock" role="toolbar" aria-label="Select map view">
         <button
           type="button"
           aria-pressed={isAll}
@@ -32,7 +38,7 @@ export function ViewDock({ selectedMode, onSelectMode, stats }: ViewDockProps) {
 
         {MODE_ORDER.map((mode, idx) => {
           const meta = MODE_META[mode];
-          const count = stats?.byMode[mode] ?? 0;
+          const count = stats?.byMode[mode] ?? '–';
           const isActive = selectedMode === mode;
 
           return (
@@ -66,6 +72,14 @@ export function ViewDock({ selectedMode, onSelectMode, stats }: ViewDockProps) {
             </button>
           );
         })}
+        <button type="button" aria-pressed={selectedMode === 'scooter'}
+          className={`view-dock-item${selectedMode === 'scooter' ? ' active' : ''}`}
+          title="Scooter (Shortcut: 7)" onClick={() => onSelectMode(selectedMode === 'scooter' ? previousTransit : 'scooter')}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c4a2ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="5" cy="18" r="3" /><circle cx="19" cy="18" r="3" /><path d="M5 18h7l5-8m2 8L16 4h-4" />
+          </svg>
+          <span className="view-dock-label">Scooter</span>
+        </button>
       </div>
     </nav>
   );
