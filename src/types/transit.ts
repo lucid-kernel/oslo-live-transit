@@ -11,6 +11,11 @@ export interface BoundingBox {
   maxLon: number;
 }
 
+export interface MapViewport {
+  bbox: BoundingBox;
+  zoom: number;
+}
+
 export interface LiveVehicle {
   id: string;
   mode: TransitMode;

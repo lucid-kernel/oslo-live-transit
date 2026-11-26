@@ -22,13 +22,9 @@ import {
 } from './ruterEstimated.ts';
 
 export { interpolateEstimatedVehicles } from './ruterEstimated.ts';
-export {
-  fetchNetworkData,
-  fetchStopDepartures,
-  fetchStopsInBounds,
-  fetchStopWithRoutes,
-  fetchVehicleJourney,
-} from './networkRoutes.ts';
+export { fetchNetworkData } from './networkRoutes.ts';
+export { fetchStopDepartures, fetchStopsInBounds, fetchStopWithRoutes } from './stopDepartures.ts';
+export { fetchVehicleJourney } from './vehicleJourney.ts';
 
 export const OSLO_CENTER = {
   latitude: 59.9139,

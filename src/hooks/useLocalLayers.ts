@@ -1,6 +1,6 @@
 import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useMemo, useState } from 'react';
-import type { BoundingBox, OsloHub, TransitMode } from '../types/transit.ts';
+import type { MapViewport, OsloHub, TransitMode } from '../types/transit.ts';
 import { approxDistKm } from '../services/geo.ts';
 import { fetchBikeStations, fetchScooters, NEARBY_METRES, SCOOTER_MIN_ZOOM } from '../services/sharedMobility.ts';
 import { disruptedStopsForMode, fetchStopSituations } from '../services/stopNotices.ts';
@@ -12,7 +12,7 @@ export function useLayerPreferences() {
   return useState({ bikes: true, notices: true, scooters: false });
 }
 
-export function useLocalLayers(viewport: { bbox: BoundingBox; zoom: number } | null, hub: OsloHub | null, selectedMode: TransitMode | 'all', preferences: ReturnType<typeof useLayerPreferences>) {
+export function useLocalLayers(viewport: MapViewport | null, hub: OsloHub | null, selectedMode: TransitMode | 'all', preferences: ReturnType<typeof useLayerPreferences>) {
   const { language } = useLanguage();
   const [enabled, setEnabled] = preferences;
   const bikes = useLayerFeed(enabled.bikes ? fetchBikeStations : null, 30_000);

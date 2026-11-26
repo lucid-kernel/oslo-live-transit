@@ -5,64 +5,19 @@ import {
   readLineColor,
   type LinePresentation,
   mapVehicleMode,
-  postGraphQL,
   postGraphQLBatched,
 } from './enturClient.ts';
 import {
   computeBearing,
   decodePolyline,
   interpolateAlongSegment,
-  isWithinBbox,
   type LngLat,
 } from './geo.ts';
 
+import { getRuterDiscoveryStopIds } from './ruterDiscovery.ts';
+
 const TARGET_DWELL_MS = 20_000;
 const ESTIMATED_REFRESH_MS = 20_000;
-
-const FALLBACK_RUTER_STOP_IDS = [
-  'NSR:StopPlace:58366', // Jernbanetorget
-  'NSR:StopPlace:58404', // Nationaltheatret
-  'NSR:StopPlace:58381', // Majorstuen
-  'NSR:StopPlace:58189', // Carl Berners plass
-  'NSR:StopPlace:58195', // Storo
-  'NSR:StopPlace:59516', // Helsfyr
-  'NSR:StopPlace:58228', // Mortensrud
-  'NSR:StopPlace:58194', // Økern
-  'NSR:StopPlace:58287', // Skøyen
-  'NSR:StopPlace:59636', // Holmlia stasjon
-  'NSR:StopPlace:58216', // Grorud
-  'NSR:StopPlace:58221', // Furuset
-  'NSR:StopPlace:58248', // Ryen
-  'NSR:StopPlace:58245', // Lambertseter
-  'NSR:StopPlace:59604', // Tøyen
-  'NSR:StopPlace:58406', // Sinsenkrysset
-  'NSR:StopPlace:58353', // Bislett
-  'NSR:StopPlace:59894', // Sagene
-  'NSR:StopPlace:59520', // Røa
-  'NSR:StopPlace:58382', // Aker brygge
-  'NSR:StopPlace:58175', // Rådhusbrygge 3
-  'NSR:StopPlace:59222', // Vippetangen ferjeterminal
-];
-
-const RUTER_ALL_MODES_PATTERNS_QUERY = `
-  query RuterAllModePatterns {
-    lines(authorities: ["RUT:Authority:RUT"], transportModes: [bus, tram, metro, water]) {
-      id
-      transportMode
-      publicCode
-      name
-      journeyPatterns {
-        quays {
-          stopPlace {
-            id
-            latitude
-            longitude
-          }
-        }
-      }
-    }
-  }
-`;
 
 const RUTER_ACTIVE_JOURNEYS_QUERY = `
   query RuterActiveJourneys($ids: [String]!) {
@@ -185,139 +140,8 @@ interface CachedJourney {
 
 const polylineCache = new Map<string, LngLat[]>();
 const cachedJourneyMap = new Map<string, CachedJourney>();
-let cachedRuterJourneys: CachedJourney[] = [];
 let lastEstimatedFetchMs = 0;
 let estimatedFetchPromise: Promise<void> | null = null;
-let cachedDiscoveryStopIds: string[] | null = null;
-let discoveryStopIdsPromise: Promise<string[]> | null = null;
-
-/**
- * Computes a minimal covering set of near-terminus stops across all Ruter
- * `bus`, `tram`, `metro`, and `water` journey patterns in `bbox` so every active
- * trip stays in `estimatedCalls` nearly all the way to its final stop.
- */
-async function getRuterDiscoveryStopIds(
-  bbox: BoundingBox,
-  signal?: AbortSignal,
-): Promise<string[]> {
-  if (cachedDiscoveryStopIds) return cachedDiscoveryStopIds;
-  if (!discoveryStopIdsPromise) {
-    discoveryStopIdsPromise = (async () => {
-      try {
-        const data = await postGraphQL<{
-          lines: Array<{
-            id: string;
-            transportMode?: string | null;
-            publicCode?: string | null;
-            name?: string | null;
-            journeyPatterns?: Array<{
-              quays?: Array<{
-                stopPlace?: {
-                  id?: string | null;
-                  latitude?: number | null;
-                  longitude?: number | null;
-                } | null;
-              }> | null;
-            }> | null;
-          }>;
-        }>(JOURNEY_PLANNER_ENDPOINT, RUTER_ALL_MODES_PATTERNS_QUERY, {}, signal);
-
-        const exactPenSet = new Set<string>();
-        const lineHalfSets: Set<string>[] = [];
-        const seenTermini = new Set<string>();
-
-        for (const line of data.lines ?? []) {
-          if (isFlybussen(line)) continue;
-          const isMetroOrTram =
-            line.transportMode === 'metro' || line.transportMode === 'tram';
-
-          for (const jp of line.journeyPatterns ?? []) {
-            const validStopIds: string[] = [];
-            for (const q of jp.quays ?? []) {
-              const sp = q.stopPlace;
-              if (
-                sp?.id &&
-                typeof sp.latitude === 'number' &&
-                typeof sp.longitude === 'number' &&
-                isWithinBbox(sp.latitude, sp.longitude, bbox)
-              ) {
-                validStopIds.push(sp.id);
-              }
-            }
-
-            if (validStopIds.length < 2) continue;
-
-            if (isMetroOrTram) {
-              exactPenSet.add(validStopIds[validStopIds.length - 2]);
-            } else {
-              const termId = validStopIds[validStopIds.length - 1];
-              const key = `${line.id}:${termId}`;
-              if (seenTermini.has(key)) continue;
-              seenTermini.add(key);
-
-              // Last 3 non-terminus stops so greedy set-cover shares hubs where possible
-              const nearTerm = validStopIds.slice(
-                Math.max(0, validStopIds.length - 4),
-                validStopIds.length - 1,
-              );
-              if (nearTerm.length > 0) {
-                lineHalfSets.push(new Set(nearTerm));
-              }
-            }
-          }
-        }
-
-        const uncovered = new Set<number>(lineHalfSets.map((_, i) => i));
-        const stopToLines = new Map<string, number[]>();
-        lineHalfSets.forEach((stops, idx) => {
-          for (const s of stops) {
-            const list = stopToLines.get(s);
-            if (list) list.push(idx);
-            else stopToLines.set(s, [idx]);
-          }
-        });
-
-        const chosenSet = new Set<string>(exactPenSet);
-        for (const s of chosenSet) {
-          for (const idx of stopToLines.get(s) ?? []) {
-            uncovered.delete(idx);
-          }
-        }
-
-        while (uncovered.size > 0) {
-          let bestStop: string | null = null;
-          let bestHits = 0;
-          for (const [stopId, lineIdxs] of stopToLines.entries()) {
-            let hits = 0;
-            for (const idx of lineIdxs) {
-              if (uncovered.has(idx)) hits++;
-            }
-            if (hits > bestHits) {
-              bestHits = hits;
-              bestStop = stopId;
-            }
-          }
-          if (!bestStop || bestHits === 0) break;
-          chosenSet.add(bestStop);
-          for (const idx of stopToLines.get(bestStop) ?? []) {
-            uncovered.delete(idx);
-          }
-        }
-
-        const chosen = Array.from(chosenSet);
-        cachedDiscoveryStopIds = chosen.length > 0 ? chosen : FALLBACK_RUTER_STOP_IDS;
-        return cachedDiscoveryStopIds;
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        return FALLBACK_RUTER_STOP_IDS;
-      } finally {
-        discoveryStopIdsPromise = null;
-      }
-    })();
-  }
-  return discoveryStopIdsPromise;
-}
-
 function sameCall(a: CachedCall, b: CachedCall): boolean {
   return a.aimedMs === b.aimedMs && a.lat === b.lat && a.lon === b.lon;
 }
@@ -466,7 +290,6 @@ async function refreshRuterJourneys(bbox: BoundingBox): Promise<void> {
     if (j.endMs < nowMs - 60_000) cachedJourneyMap.delete(id);
   }
 
-  cachedRuterJourneys = Array.from(cachedJourneyMap.values());
   lastEstimatedFetchMs = nowMs;
 }
 
@@ -480,7 +303,7 @@ export async function ensureRuterJourneysFresh(
   }
   if (
     Date.now() - lastEstimatedFetchMs < ESTIMATED_REFRESH_MS &&
-    cachedRuterJourneys.length > 0
+    cachedJourneyMap.size > 0
   ) {
     return;
   }
@@ -532,91 +355,75 @@ function stopToStopProgress(elapsedMs: number, durationMs: number): number {
 export function interpolateEstimatedVehicles(nowMs: number = Date.now()): LiveVehicle[] {
   const nowIso = new Date(nowMs).toISOString();
   const vehicles: LiveVehicle[] = [];
-
-  for (const journey of cachedRuterJourneys) {
-    if (nowMs < journey.startMs || nowMs > journey.endMs) continue;
-
-    const { calls } = journey;
-    for (let i = 0; i < calls.length; i++) {
-      const curr = calls[i];
-      const next = calls[i + 1];
-
-      if (nowMs >= curr.arrivalMs && nowMs <= (next ? curr.departureMs : journey.endMs)) {
-        vehicles.push({
-          id: `est:${journey.id}`,
-          mode: journey.mode,
-          positionSource: 'estimated',
-          serviceJourneyId: journey.id,
-          lineRef: journey.lineRef,
-          lineCode: journey.lineCode,
-          lineColor: journey.lineColor,
-          lineName: journey.lineName,
-          destination: curr.destination || journey.destination,
-          origin: journey.origin,
-          currentStopName: curr.stopName || null,
-          nextStopName: next?.stopName ?? null,
-          operator: 'Ruter',
-          codespace: 'RUT',
-          latitude: curr.lat,
-          longitude: curr.lon,
-          bearing: next
-            ? computeBearing(curr.lat, curr.lon, next.lat, next.lon)
-            : null,
-          speed: 0,
-          boardingSinceMs: journey.mode === 'bus' && next && curr.forBoarding ? curr.arrivalMs : undefined,
-          delaySeconds: curr.delaySeconds,
-          monitored: curr.realtime,
-          inCongestion: false,
-          occupancyStatus: null,
-          lastUpdated: nowIso,
-        });
-        break;
-      }
-
-      if (next && nowMs > curr.departureMs && nowMs < next.arrivalMs) {
-        const span = Math.max(1, next.arrivalMs - curr.departureMs);
-        const elapsed = nowMs - curr.departureMs;
-        const easeAtStops = journey.mode === 'bus' || journey.mode === 'metro';
-        const fraction = easeAtStops ? stopToStopProgress(elapsed, span) : elapsed / span;
-        const pos = interpolateAlongSegment(
-          curr.lat,
-          curr.lon,
-          next.lat,
-          next.lon,
-          fraction,
-          journey.polyline,
-          easeAtStops,
-        );
-
-        vehicles.push({
-          id: `est:${journey.id}`,
-          mode: journey.mode,
-          positionSource: 'estimated',
-          serviceJourneyId: journey.id,
-          lineRef: journey.lineRef,
-          lineCode: journey.lineCode,
-          lineColor: journey.lineColor,
-          lineName: journey.lineName,
-          destination: curr.destination || journey.destination,
-          origin: journey.origin,
-          currentStopName: curr.stopName || null,
-          nextStopName: next.stopName || null,
-          operator: 'Ruter',
-          codespace: 'RUT',
-          latitude: pos.lat,
-          longitude: pos.lon,
-          bearing: pos.bearing,
-          speed: null,
-          delaySeconds: curr.delaySeconds,
-          monitored: curr.realtime || next.realtime,
-          inCongestion: false,
-          occupancyStatus: null,
-          lastUpdated: nowIso,
-        });
-        break;
-      }
-    }
+  for (const journey of cachedJourneyMap.values()) {
+    const vehicle = interpolateJourney(journey, nowMs, nowIso);
+    if (vehicle) vehicles.push(vehicle);
   }
-
   return vehicles;
+}
+
+export function estimateVehiclePosition(journeyId: string, nowMs: number, nowIso: string) {
+  const journey = cachedJourneyMap.get(journeyId);
+  return journey && interpolateJourney(journey, nowMs, nowIso);
+}
+
+function interpolateJourney(journey: CachedJourney, nowMs: number, nowIso: string): LiveVehicle | null {
+  if (nowMs < journey.startMs || nowMs > journey.endMs) return null;
+
+  const { calls } = journey;
+  for (let i = 0; i < calls.length; i++) {
+    const curr = calls[i];
+    const next = calls[i + 1];
+    const stopped = nowMs >= curr.arrivalMs && nowMs <= (next ? curr.departureMs : journey.endMs);
+    const moving = next && nowMs > curr.departureMs && nowMs < next.arrivalMs;
+    if (!stopped && !moving) continue;
+
+    let motion: Pick<LiveVehicle, 'latitude' | 'longitude' | 'bearing' | 'speed' | 'monitored' | 'boardingSinceMs' | 'nextStopName'>;
+    if (stopped) {
+      motion = {
+        latitude: curr.lat,
+        longitude: curr.lon,
+        bearing: next ? computeBearing(curr.lat, curr.lon, next.lat, next.lon) : null,
+        speed: 0,
+        boardingSinceMs: journey.mode === 'bus' && next && curr.forBoarding ? curr.arrivalMs : undefined,
+        monitored: curr.realtime,
+        nextStopName: next?.stopName ?? null,
+      };
+    } else {
+      const span = Math.max(1, next.arrivalMs - curr.departureMs);
+      const elapsed = nowMs - curr.departureMs;
+      const easeAtStops = journey.mode === 'bus' || journey.mode === 'metro';
+      const fraction = easeAtStops ? stopToStopProgress(elapsed, span) : elapsed / span;
+      const position = interpolateAlongSegment(curr.lat, curr.lon, next.lat, next.lon, fraction, journey.polyline, easeAtStops);
+      motion = {
+        latitude: position.lat,
+        longitude: position.lon,
+        bearing: position.bearing,
+        speed: null,
+        monitored: curr.realtime || next.realtime,
+        nextStopName: next.stopName || null,
+      };
+    }
+    return {
+      id: `est:${journey.id}`,
+      mode: journey.mode,
+      positionSource: 'estimated',
+      serviceJourneyId: journey.id,
+      lineRef: journey.lineRef,
+      lineCode: journey.lineCode,
+      lineColor: journey.lineColor,
+      lineName: journey.lineName,
+      destination: curr.destination || journey.destination,
+      origin: journey.origin,
+      currentStopName: curr.stopName || null,
+      operator: 'Ruter',
+      codespace: 'RUT',
+      ...motion,
+      delaySeconds: curr.delaySeconds,
+      inCongestion: false,
+      occupancyStatus: null,
+      lastUpdated: nowIso,
+    };
+  }
+  return null;
 }

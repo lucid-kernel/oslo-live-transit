@@ -1,12 +1,11 @@
 import { useMapLanguage } from './map/mapLanguage.ts';
 import { useLanguage } from '../i18n/LanguageProvider.tsx';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import type {
-  BoundingBox,
+  MapViewport,
   LiveVehicle,
   NetworkData,
-  NetworkStop,
   OsloHub,
   VehicleJourneyDetails,
 } from '../types/transit.ts';
@@ -22,21 +21,17 @@ import {
   buildJourneyStopFeatures,
   buildNetworkRouteFeatures,
   buildNetworkStopFeatures,
-  buildVehicleFeatures,
-  type VehicleAnimState,
 } from './map/geojson.ts';
 import { setLocalPopupContent } from './map/localPopup.ts';
 import { addLocalLayers, LOCAL_LAYERS } from './map/localLayers.ts';
 import type { PointFeatureCollection } from './map/geojson.ts';
 import { addTransitMapLayers, DARK_MATTER_STYLE } from './map/mapLayers.ts';
-import {
-  createGpsTrackMap,
-  FRAME_INTERVAL_MS,
-  stepVehiclePositions,
-  type GpsTrackState,
-} from './map/vehicleMotion.ts';
+import { bindFollowGestures } from './map/followGestures.ts';
+import { readViewport } from './map/viewport.ts';
+import { useVehicleAnimation } from './map/useVehicleAnimation.ts';
+import { styleSelectedVehicle } from './map/selectionStyle.ts';
 
-
+const VEHICLE_LAYERS = ['vehicles-body', 'vehicles-halo'];
 const OSLO_VIEW: maplibregl.CameraOptions = {
   center: [OSLO_CENTER.longitude, OSLO_CENTER.latitude], zoom: 11.7, pitch: 15, bearing: 0,
 };
@@ -65,7 +60,7 @@ interface TransitMapProps {
   onSelectVehicle: (vehicle: LiveVehicle | null) => void;
   onSelectHub: (hub: OsloHub | null) => void;
   onStopFollow?: () => void;
-  onViewportChange?: (bbox: BoundingBox, zoom: number) => void;
+  onViewportChange?: (viewport: MapViewport) => void;
   onMapReady?: () => void;
 }
 
@@ -74,8 +69,7 @@ function syncGeoJsonSource(
   sourceId: string,
   data: Parameters<maplibregl.GeoJSONSource['setData']>[0],
 ): void {
-  const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
-  source?.setData(data);
+  map.getSource<maplibregl.GeoJSONSource>(sourceId)?.setData(data);
 }
 
 function getHudPadding(hasRightDrawer: boolean): maplibregl.PaddingOptions {
@@ -131,26 +125,22 @@ export function TransitMap({
   onMapReady,
 }: TransitMapProps) {
   const { m, language } = useLanguage();
-  const languageRef = useRef(language);
-  languageRef.current = language;
   const initialCamera = useRef(savedCamera.current?.nationalRail === nationalRail ? savedCamera.current.camera : null);
-  const restoredQuery = useRef(initialCamera.current ? searchQuery : null);
+  const fittedQuery = useRef(initialCamera.current ? searchQuery : null);
   const lastNationalRail = useRef(nationalRail);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const mapReadyRef = useRef(false);
+  const [map, setMap] = useState<maplibregl.Map | null>(null);
   const [hoveredVehicle, setHoveredVehicle] = useState<{
     vehicle: LiveVehicle;
     x: number;
     y: number;
   } | null>(null);
 
-  const localPointsRef = useRef(localPoints);
-  localPointsRef.current = localPoints;
   const localPopupRef = useRef<{ popup: maplibregl.Popup; id: string; kind: string } | null>(null);
   useEffect(() => {
-    if (!mapReadyRef.current || !mapRef.current) return;
-    syncGeoJsonSource(mapRef.current, 'local-layers', localPoints);
+    if (!map) return;
+    syncGeoJsonSource(map, 'local-layers', localPoints);
     const selection = localPopupRef.current;
     if (!selection?.popup.isOpen()) return;
     const feature = localPoints.features.find(({ properties }) =>
@@ -161,39 +151,57 @@ export function TransitMap({
     } else {
       selection.popup.remove();
     }
-  }, [localPoints, language]);
+  }, [map, localPoints, language]);
 
-  const vehiclesRef = useRef<LiveVehicle[]>([]);
-  const vehiclesByIdRef = useRef<Map<string, LiveVehicle>>(new Map());
-  const networkStopsByIdRef = useRef<Map<string, NetworkStop>>(new Map());
-  const networkDataRef = useRef<NetworkData | null>(networkData);
-  const vehicleJourneyRef = useRef<VehicleJourneyDetails | null>(vehicleJourney);
-  const selectedVehicleIdRef = useRef<string | null>(selectedVehicleId);
-  const selectedHubIdRef = useRef<string | null>(selectedHubId);
-  const currentPosRef = useRef<Map<string, VehicleAnimState>>(new Map());
-  const gpsTrackRef = useRef<Map<string, GpsTrackState>>(new Map());
-  const followVehicleIdRef = useRef<string | null>(followVehicleId);
-  const userGestureActiveRef = useRef(false);
+  const gesture = useRef(false);
+  const { vehiclesByIdRef, currentPosRef } = useVehicleAnimation(map, vehicles, followVehicleId, gesture);
   const lastHandledFitSeqRef = useRef(0);
   const lastFittedStopRoutesIdRef = useRef<string | null>(null);
-  const prevFollowVehicleIdRef = useRef<string | null>(null);
 
-  networkDataRef.current = networkData;
-  vehicleJourneyRef.current = vehicleJourney;
-  selectedVehicleIdRef.current = selectedVehicleId;
-  selectedHubIdRef.current = selectedHubId;
-  followVehicleIdRef.current = followVehicleId;
-
-  const onSelectVehicleRef = useRef(onSelectVehicle);
-  const onSelectHubRef = useRef(onSelectHub);
-  const onStopFollowRef = useRef(onStopFollow);
-  const onViewportChangeRef = useRef(onViewportChange);
-  const onMapReadyRef = useRef(onMapReady);
-  onSelectVehicleRef.current = onSelectVehicle;
-  onSelectHubRef.current = onSelectHub;
-  onStopFollowRef.current = onStopFollow;
-  onViewportChangeRef.current = onViewportChange;
-  onMapReadyRef.current = onMapReady;
+  const following = useEffectEvent(() => !!followVehicleId);
+  const stopFollow = useEffectEvent(() => onStopFollow?.());
+  const emitViewport = useEffectEvent((map: maplibregl.Map) => onViewportChange?.(readViewport(map)));
+  const ready = useEffectEvent(() => onMapReady?.());
+  const click = useEffectEvent((map: maplibregl.Map, e: maplibregl.MapMouseEvent, selectableLayers: string[]) => {
+    const [hit] = map.queryRenderedFeatures(e.point, { layers: selectableLayers });
+    localPopupRef.current?.popup.remove();
+    setHoveredVehicle(null);
+    if (!hit || hit.geometry.type !== 'Point') {
+      onSelectVehicle(null);
+      onSelectHub(null);
+      return;
+    }
+    const { id, kind, label } = hit.properties;
+    const [lon, lat] = hit.geometry.coordinates;
+    if (kind === 'bike-stations' || kind === 'available-scooters' || kind === 'notice-overview') {
+      const popup = new maplibregl.Popup({ className: 'mobility-popup', offset: 9 })
+        .setLngLat([lon, lat]);
+      setLocalPopupContent(popup, hit.properties, language);
+      popup.addTo(map);
+      localPopupRef.current = { popup, id, kind };
+      return;
+    }
+    if (VEHICLE_LAYERS.includes(hit.layer.id)) {
+      const vehicle = vehiclesByIdRef.current.get(id);
+      if (vehicle) onSelectVehicle(vehicle);
+      return;
+    }
+    const stop = networkData?.stops.find(stop => stop.id === id);
+    let hub: OsloHub | undefined;
+    if (hit.layer.id === 'stop-notices') {
+      hub = { id, name: label, latitude: lat, longitude: lon };
+    } else if (hit.layer.id === 'hubs-circle') {
+      hub = OSLO_HUBS.find(h => h.id === id);
+    } else if (stop) {
+      hub = { id: stop.stopPlaceId ?? stop.id, name: stop.name, latitude: stop.lat, longitude: stop.lon };
+    }
+    if (hub) {
+      onSelectHub(hub);
+      if (map.getZoom() < 13 && stop?.mode !== 'bus') {
+        map.easeTo({ center: [hub.longitude, hub.latitude], zoom: 13.5, duration: 650, essential: true });
+      }
+    }
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -215,62 +223,15 @@ export function TransitMap({
     });
     resizeObserver.observe(containerRef.current);
 
-    let animFrameId: number | null = null;
-    let lastFramePerf = 0;
-
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const renderFrame = (nowPerf: number) => {
-      animFrameId = requestAnimationFrame(renderFrame);
-      if (!mapReadyRef.current || nowPerf - lastFramePerf < FRAME_INTERVAL_MS) return;
-      const dtSec = lastFramePerf > 0 ? (nowPerf - lastFramePerf) / 1000 : FRAME_INTERVAL_MS / 1000;
-      lastFramePerf = nowPerf;
-
-      const nowMs = Date.now();
-      const activeVehicles = vehiclesRef.current;
-      const { positions, vehiclesById } = stepVehiclePositions(
-        activeVehicles,
-        gpsTrackRef.current,
-        currentPosRef.current,
-        nowPerf,
-        dtSec,
-        nowMs,
-      );
-
-      vehiclesByIdRef.current = vehiclesById;
-      currentPosRef.current = positions;
-      syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(vehiclesById.values(), positions, nowMs, reducedMotion.matches));
-
-      if (followVehicleIdRef.current && !userGestureActiveRef.current && !map.isMoving()) {
-        const followedPos = positions.get(followVehicleIdRef.current);
-        if (followedPos) {
-          const center = map.getCenter();
-          const dLng = followedPos.lon - center.lng;
-          const dLat = followedPos.lat - center.lat;
-          const dist = Math.hypot(dLng, dLat);
-
-          if (dist > 1e-6) {
-            // Smoothly glide back after a pinch/zoom; track 1:1 once locked onto the vehicle.
-            if (dist < 1.5e-5) {
-              map.setCenter([followedPos.lon, followedPos.lat]);
-            } else {
-              const alpha = 1 - Math.exp(-8 * dtSec);
-              map.setCenter([center.lng + dLng * alpha, center.lat + dLat * alpha]);
-            }
-          }
-        }
-      }
-    };
-
+    const releaseGestures = bindFollowGestures(map, gesture, following, stopFollow);
+    mapRef.current = map;
     map.on('load', () => {
       addTransitMapLayers(map);
       addLocalLayers(map);
-      syncGeoJsonSource(map, 'local-layers', localPointsRef.current);
-
-      const vehicleHitLayers = ['vehicles-body', 'vehicles-halo'];
       const canHover = () =>
         typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
 
-      map.on('mousemove', vehicleHitLayers, (e) => {
+      map.on('mousemove', VEHICLE_LAYERS, (e) => {
         if (!canHover()) return;
         const id = e.features?.[0]?.properties?.id as string | undefined;
         const vehicle = id ? vehiclesByIdRef.current.get(id) : undefined;
@@ -285,167 +246,27 @@ export function TransitMap({
           setHoveredVehicle(null);
         }
       });
-      map.on('mouseleave', vehicleHitLayers, () => {
+      map.on('mouseleave', VEHICLE_LAYERS, () => {
         setHoveredVehicle(null);
       });
 
-      const selectableLayers = [...vehicleHitLayers, 'hubs-circle', 'network-stops-circle', ...LOCAL_LAYERS];
+      const selectableLayers = [...VEHICLE_LAYERS, 'hubs-circle', 'network-stops-circle', ...LOCAL_LAYERS];
       map.on('mouseenter', selectableLayers, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', selectableLayers, () => { map.getCanvas().style.cursor = ''; });
-
-      map.on('click', (e) => {
-        const [hit] = map.queryRenderedFeatures(e.point, { layers: selectableLayers });
-        localPopupRef.current?.popup.remove();
-        setHoveredVehicle(null);
-        if (!hit || hit.geometry.type !== 'Point') {
-          onSelectVehicleRef.current(null);
-          onSelectHubRef.current(null);
-          return;
-        }
-        const { id, kind, label } = hit.properties;
-        const [lon, lat] = hit.geometry.coordinates;
-        if (kind === 'bike-stations' || kind === 'available-scooters' || kind === 'notice-overview') {
-          const popup = new maplibregl.Popup({ className: 'mobility-popup', offset: 9 })
-            .setLngLat([lon, lat]);
-          setLocalPopupContent(popup, hit.properties, languageRef.current);
-          popup.addTo(map);
-          localPopupRef.current = { popup, id, kind };
-          return;
-        }
-        if (vehicleHitLayers.includes(hit.layer.id)) {
-          const vehicle = vehiclesByIdRef.current.get(id);
-          if (vehicle) onSelectVehicleRef.current(vehicle);
-          return;
-        }
-        const stop = networkStopsByIdRef.current.get(id);
-        let hub: OsloHub | undefined;
-        if (hit.layer.id === 'stop-notices') {
-          hub = { id, name: label, latitude: lat, longitude: lon };
-        } else if (hit.layer.id === 'hubs-circle') {
-          hub = OSLO_HUBS.find(h => h.id === id);
-        } else if (stop) {
-          hub = { id: stop.stopPlaceId ?? stop.id, name: stop.name, latitude: stop.lat, longitude: stop.lon };
-        }
-        if (hub) {
-          onSelectHubRef.current(hub);
-          if (map.getZoom() < 13 && stop?.mode !== 'bus') {
-            map.easeTo({ center: [hub.longitude, hub.latitude], zoom: 13.5, duration: 650, essential: true });
-          }
-        }
-      });
-
-      const emitViewport = () => {
-        const bounds = map.getBounds();
-        onViewportChangeRef.current?.(
-          {
-            minLat: bounds.getSouth(),
-            maxLat: bounds.getNorth(),
-            minLon: bounds.getWest(),
-            maxLon: bounds.getEast(),
-          },
-          map.getZoom(),
-        );
-      };
-
-      map.on('movestart', (e) => {
-        setHoveredVehicle(null);
-        if (e.originalEvent) userGestureActiveRef.current = true;
-      });
-      map.on('dragstart', (e) => {
-        if (e.originalEvent && followVehicleIdRef.current) {
-          didDrag = true;
-        }
-      });
-      map.on('dragend', () => {
-        if (didDrag && !multiTouchGesture && followVehicleIdRef.current) {
-          onStopFollowRef.current?.();
-        }
-        didDrag = false;
-      });
-      map.on('moveend', () => {
-        userGestureActiveRef.current = false;
-        if (!map.isMoving()) {
-          didDrag = false;
-          multiTouchGesture = false;
-        }
-        emitViewport();
-      });
-      mapReadyRef.current = true;
-      onMapReadyRef.current?.();
-
-      // Sync any initial state that arrived before map load completed
-      syncGeoJsonSource(map, 'network-routes', buildNetworkRouteFeatures(networkDataRef.current));
-      syncGeoJsonSource(map, 'network-stops', buildNetworkStopFeatures(networkDataRef.current));
-      syncGeoJsonSource(map, 'vehicles', buildVehicleFeatures(vehiclesRef.current, currentPosRef.current, Date.now(), reducedMotion.matches));
-      emitViewport();
-      animFrameId = requestAnimationFrame(renderFrame);
+      map.on('click', e => click(map, e, selectableLayers));
+      map.on('movestart', () => setHoveredVehicle(null));
+      map.on('moveend', () => emitViewport(map));
+      setMap(map);
+      emitViewport(map);
+      ready();
     });
 
-    mapRef.current = map;
-
-    const canvasContainer = map.getCanvasContainer();
-    let wheelIdleTimer: number | null = null;
-    let didDrag = false;
-    let multiTouchGesture = false;
-
-    const onGestureStart = () => {
-      userGestureActiveRef.current = true;
-    };
-    const onTouchStart = (e: TouchEvent) => {
-      userGestureActiveRef.current = true;
-      if (e.touches.length >= 2) {
-        multiTouchGesture = true;
-      } else if (e.touches.length === 1) {
-        multiTouchGesture = false;
-        didDrag = false;
-      }
-    };
-    const onGestureEnd = () => {
-      if (!map.isMoving()) {
-        userGestureActiveRef.current = false;
-      }
-    };
-    const onTouchEnd = (e: TouchEvent) => {
-      if (e.touches.length === 0 && !map.isMoving()) {
-        userGestureActiveRef.current = false;
-        multiTouchGesture = false;
-        didDrag = false;
-      }
-    };
-    const onWheel = () => {
-      userGestureActiveRef.current = true;
-      if (wheelIdleTimer !== null) window.clearTimeout(wheelIdleTimer);
-      wheelIdleTimer = window.setTimeout(() => {
-        wheelIdleTimer = null;
-        if (!map.isMoving()) {
-          userGestureActiveRef.current = false;
-        }
-      }, 250);
-    };
-
-    canvasContainer.addEventListener('pointerdown', onGestureStart, { passive: true, capture: true });
-    canvasContainer.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
-    canvasContainer.addEventListener('pointerup', onGestureEnd, { passive: true, capture: true });
-    canvasContainer.addEventListener('pointercancel', onGestureEnd, { passive: true, capture: true });
-    canvasContainer.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
-    canvasContainer.addEventListener('touchcancel', onTouchEnd, { passive: true, capture: true });
-    canvasContainer.addEventListener('wheel', onWheel, { passive: true, capture: true });
-
     return () => {
-      if (wheelIdleTimer !== null) window.clearTimeout(wheelIdleTimer);
-      canvasContainer.removeEventListener('pointerdown', onGestureStart, { capture: true });
-      canvasContainer.removeEventListener('touchstart', onTouchStart, { capture: true });
-      canvasContainer.removeEventListener('pointerup', onGestureEnd, { capture: true });
-      canvasContainer.removeEventListener('pointercancel', onGestureEnd, { capture: true });
-      canvasContainer.removeEventListener('touchend', onTouchEnd, { capture: true });
-      canvasContainer.removeEventListener('touchcancel', onTouchEnd, { capture: true });
-      canvasContainer.removeEventListener('wheel', onWheel, { capture: true });
-      if (animFrameId !== null) cancelAnimationFrame(animFrameId);
+      releaseGestures();
       resizeObserver.disconnect();
       savedCamera.current = { nationalRail: lastNationalRail.current, camera: {
         center: map.getCenter(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing(),
       } };
-      mapReadyRef.current = false;
       map.remove();
       mapRef.current = null;
     };
@@ -453,30 +274,13 @@ export function TransitMap({
   useMapLanguage(mapRef, language, m.map);
 
   useEffect(() => {
-    vehiclesRef.current = vehicles;
-    const nowPerf = performance.now();
-
-    const nextById = new Map<string, LiveVehicle>();
-    for (const v of vehicles) nextById.set(v.id, v);
-    vehiclesByIdRef.current = nextById;
-    gpsTrackRef.current = createGpsTrackMap(vehicles, currentPosRef.current, nowPerf);
-  }, [vehicles]);
+    if (!map) return;
+    syncGeoJsonSource(map, 'network-routes', buildNetworkRouteFeatures(networkData));
+    syncGeoJsonSource(map, 'network-stops', buildNetworkStopFeatures(networkData));
+  }, [map, networkData]);
 
   useEffect(() => {
-    const nextStopsById = new Map<string, NetworkStop>();
-    if (networkData) {
-      for (const s of networkData.stops) nextStopsById.set(s.id, s);
-    }
-    networkStopsByIdRef.current = nextStopsById;
-
-    if (!mapReadyRef.current || !mapRef.current) return;
-    syncGeoJsonSource(mapRef.current, 'network-routes', buildNetworkRouteFeatures(networkData));
-    syncGeoJsonSource(mapRef.current, 'network-stops', buildNetworkStopFeatures(networkData));
-  }, [networkData]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReadyRef.current) return;
+    if (!map) return;
 
     const selected = selectedVehicleId ? vehiclesByIdRef.current.get(selectedVehicleId) : null;
     const color = selected ? getVehicleColor(selected) : '#38bdf8';
@@ -492,11 +296,10 @@ export function TransitMap({
       buildJourneyLineFeature(vehicleJourney?.remainingCoordinates ?? [], color),
     );
     syncGeoJsonSource(map, 'journey-stops', buildJourneyStopFeatures(vehicleJourney, color));
-  }, [vehicleJourney, selectedVehicleId]);
+  }, [map, vehicleJourney, selectedVehicleId]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReadyRef.current || !selectedVehicleId || followVehicleIdRef.current) return;
+    if (!map || !selectedVehicleId || following()) return;
 
     const pos = currentPosRef.current.get(selectedVehicleId);
     const vehicle = vehiclesByIdRef.current.get(selectedVehicleId);
@@ -516,15 +319,14 @@ export function TransitMap({
         essential: true,
       });
     }
-  }, [selectedVehicleId]);
+  }, [map, selectedVehicleId]);
 
   useEffect(() => {
     if (!fitRouteSeq || fitRouteSeq === lastHandledFitSeqRef.current) return;
-    lastHandledFitSeqRef.current = fitRouteSeq;
 
-    const map = mapRef.current;
-    const journey = vehicleJourneyRef.current;
-    if (!map || !mapReadyRef.current || !journey) return;
+    const journey = vehicleJourney;
+    if (!map || !journey) return;
+    lastHandledFitSeqRef.current = fitRouteSeq;
 
     const routeCoords: Array<[number, number]> = [
       ...journey.pastCoordinates,
@@ -542,11 +344,10 @@ export function TransitMap({
         hasRightDrawer: true,
       });
     }
-  }, [fitRouteSeq]);
+  }, [map, fitRouteSeq, vehicleJourney]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReadyRef.current) return;
+    if (!map) return;
 
     if (!selectedHubId || !shouldFitStopRoutes) {
       if (!selectedHubId) lastFittedStopRoutesIdRef.current = null;
@@ -568,15 +369,13 @@ export function TransitMap({
         });
       }
     }
-  }, [networkData, selectedHubId, shouldFitStopRoutes]);
+  }, [map, networkData, selectedHubId, shouldFitStopRoutes]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    const prev = prevFollowVehicleIdRef.current;
-    prevFollowVehicleIdRef.current = followVehicleId;
 
-    if (!map || !mapReadyRef.current || !followVehicleId || followVehicleId === prev) return;
-    const pos = currentPosRef.current.get(followVehicleId);
+    if (!map || !followVehicleId) return;
+    const vehicle = vehiclesByIdRef.current.get(followVehicleId);
+    const pos = currentPosRef.current.get(followVehicleId) ?? (vehicle && { lon: vehicle.longitude, lat: vehicle.latitude });
     if (!pos) return;
 
     if (map.getZoom() < 13.6) {
@@ -587,107 +386,30 @@ export function TransitMap({
         essential: true,
       });
     }
-  }, [followVehicleId]);
+  }, [map, followVehicleId]);
 
+  const fitSearch = useEffectEvent(() => {
+    if (!map || !vehicles.length) return;
+    fitMapToCoordinates(map, vehicles.map(v => [v.longitude, v.latitude]), {
+      maxZoom: 14, duration: 800, hasRightDrawer: Boolean(selectedVehicleId || selectedHubId),
+    });
+    fittedQuery.current = searchQuery;
+  });
+  const hasMatches = vehicles.length > 0;
   useEffect(() => {
-    if (restoredQuery.current === searchQuery) return;
-    restoredQuery.current = null;
-    const q = searchQuery.trim();
-    if (!q) return;
-
-    const timer = window.setTimeout(() => {
-      const map = mapRef.current;
-      if (!map || !mapReadyRef.current) return;
-
-      const matching = vehiclesRef.current;
-      if (matching.length === 0) return;
-
-      const coords: Array<[number, number]> = matching.map((v) => [
-        v.longitude,
-        v.latitude,
-      ]);
-      fitMapToCoordinates(map, coords, {
-        maxZoom: 14.0,
-        duration: 800,
-        hasRightDrawer: Boolean(selectedVehicleIdRef.current || selectedHubIdRef.current),
-      });
-    }, 320);
-
+    if (fittedQuery.current === searchQuery) return;
+    fittedQuery.current = null;
+    if (!map || !hasMatches || !searchQuery.trim()) return;
+    const timer = window.setTimeout(fitSearch, 320);
     return () => window.clearTimeout(timer);
-  }, [searchQuery]);
+  }, [map, searchQuery, hasMatches]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReadyRef.current) return;
-
-    if (map.getLayer('vehicles-selected-ring')) {
-      map.setFilter('vehicles-selected-ring', ['==', ['get', 'id'], selectedVehicleId ?? '']);
-    }
-
-    if (selectedVehicleId) {
-      if (map.getLayer('vehicles-halo')) {
-        map.setPaintProperty('vehicles-halo', 'circle-opacity', [
-          'case',
-          ['==', ['get', 'id'], selectedVehicleId],
-          0.34,
-          0.05,
-        ]);
-      }
-      if (map.getLayer('vehicles-body')) {
-        map.setPaintProperty('vehicles-body', 'circle-opacity', [
-          'case',
-          ['==', ['get', 'id'], selectedVehicleId],
-          ['case', ['==', ['get', 'positionSource'], 'estimated'], 0.9, 1],
-          0.2,
-        ]);
-        map.setPaintProperty('vehicles-body', 'circle-stroke-opacity', [
-          'case',
-          ['==', ['get', 'id'], selectedVehicleId],
-          1,
-          0.2,
-        ]);
-      }
-      if (map.getLayer('vehicles-heading')) {
-        map.setPaintProperty('vehicles-heading', 'icon-opacity', [
-          'case',
-          ['==', ['get', 'id'], selectedVehicleId],
-          1,
-          0.18,
-        ]);
-      }
-      if (map.getLayer('vehicles-label')) {
-        map.setPaintProperty('vehicles-label', 'text-opacity', [
-          'case',
-          ['==', ['get', 'id'], selectedVehicleId],
-          1,
-          0.2,
-        ]);
-      }
-    } else {
-      if (map.getLayer('vehicles-halo')) {
-        map.setPaintProperty('vehicles-halo', 'circle-opacity', 0.2);
-      }
-      if (map.getLayer('vehicles-body')) {
-        map.setPaintProperty('vehicles-body', 'circle-opacity', [
-          'case',
-          ['==', ['get', 'positionSource'], 'estimated'],
-          0.82,
-          1,
-        ]);
-        map.setPaintProperty('vehicles-body', 'circle-stroke-opacity', 1);
-      }
-      if (map.getLayer('vehicles-heading')) {
-        map.setPaintProperty('vehicles-heading', 'icon-opacity', 1);
-      }
-      if (map.getLayer('vehicles-label')) {
-        map.setPaintProperty('vehicles-label', 'text-opacity', 1);
-      }
-    }
-  }, [selectedVehicleId]);
+    if (map) styleSelectedVehicle(map, selectedVehicleId);
+  }, [map, selectedVehicleId]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReadyRef.current) return;
+    if (!map) return;
     if (map.getLayer('hubs-circle')) {
       map.setPaintProperty('hubs-circle', 'circle-radius', [
         'case',
@@ -707,7 +429,7 @@ export function TransitMap({
         });
       }
     }
-  }, [selectedHubId]);
+  }, [map, selectedHubId]);
 
   useEffect(() => {
     if (lastNationalRail.current === nationalRail) return;

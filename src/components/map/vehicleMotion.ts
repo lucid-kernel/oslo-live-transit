@@ -1,5 +1,5 @@
 import type { LiveVehicle } from '../../types/transit.ts';
-import { interpolateEstimatedVehicles } from '../../services/entur.ts';
+import { estimateVehiclePosition } from '../../services/ruterEstimated.ts';
 import type { VehicleAnimState } from './geojson.ts';
 
 export const MAX_DEAD_RECKON_SEC = 15;
@@ -84,10 +84,7 @@ export function stepVehiclePositions(
   positions: Map<string, VehicleAnimState>;
   vehiclesById: Map<string, LiveVehicle>;
 } {
-  const estimatedById = new Map<string, LiveVehicle>();
-  for (const ev of interpolateEstimatedVehicles(nowMs)) {
-    estimatedById.set(ev.id, ev);
-  }
+  const nowIso = new Date(nowMs).toISOString();
 
   const clampedDt = Math.min(0.2, Math.max(0.001, dtSec));
   const alphaPos = 1 - Math.exp(-clampedDt / POS_DAMP_TAU_SEC);
@@ -104,7 +101,7 @@ export function stepVehiclePositions(
     let targetBearing = v.bearing ?? prev?.bearing ?? 0;
 
     if (v.positionSource === 'estimated') {
-      const updated = estimatedById.get(v.id) ?? v;
+      const updated = estimateVehiclePosition(v.serviceJourneyId ?? v.id.slice(4), nowMs, nowIso) ?? v;
       vehiclesById.set(v.id, updated);
       holdingAtStop = (v.mode === 'bus' || v.mode === 'metro') && updated.speed === 0;
       targetLon = updated.longitude;

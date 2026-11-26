@@ -1,14 +1,9 @@
 import { locales, number } from '../i18n/language.ts';
 import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useMemo, useState, type FocusEvent, type KeyboardEvent, type RefObject } from 'react';
-import { ListFilter, MapPin, Search, X } from 'lucide-react';
+import { ListFilter, Search, X } from 'lucide-react';
 import type { LiveVehicle, NetworkData, OsloHub, RailCategory, TransitMode } from '../types/transit.ts';
-import { ModeIcon } from './ModeIcon.tsx';
-import {
-  formatDelay,
-  getBadgeStyle,
-  getVehicleColor,
-} from './transitTheme.ts';
+import { SearchResultOption, type SearchResultEntry } from './SearchResultOption.tsx';
 
 interface FilterBarProps {
   selectedMode: TransitMode | 'all';
@@ -32,10 +27,6 @@ interface FilterBarProps {
 
 const RAIL_CATEGORIES: RailCategory[] = ['local', 'regional', 'long_distance', 'airport'];
 const QUICK_SEARCH_CHIPS = ['31', '19', 'L1', 'Oslo S'];
-
-type SearchResultEntry =
-  | { kind: 'hub'; key: string; hub: OsloHub }
-  | { kind: 'vehicle'; key: string; vehicle: LiveVehicle };
 
 export function FilterBar({
   selectedMode,
@@ -72,9 +63,10 @@ export function FilterBar({
 
   const sortedVehicles = useMemo(() => {
     const limit = q ? 6 : 8;
+    const lineOrder = new Intl.Collator(locales[language], { numeric: true });
     return [...filteredVehicles]
       .sort((a, b) =>
-        a.lineCode.localeCompare(b.lineCode, locales[language], { numeric: true }) ||
+        lineOrder.compare(a.lineCode, b.lineCode) ||
         a.destination.localeCompare(b.destination, locales[language]),
       )
       .slice(0, limit);
@@ -218,65 +210,9 @@ export function FilterBar({
           role="listbox"
           aria-label={m.matches}
         >
-          {resultEntries.map((entry, idx) => {
-            const isActive = idx === activeIndex;
-            if (entry.kind === 'hub') {
-              return (
-                <button
-                  key={entry.key}
-                  id={`search-opt-${entry.key}`}
-                  type="button"
-                  role="option"
-                  aria-selected={isActive}
-                  className={`search-result-item${isActive ? ' active' : ''}`}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => selectEntry(entry)}
-                >
-                  <span className="search-result-hub-badge" aria-hidden="true">
-                    <MapPin size={13} />
-                  </span>
-                  <span className="search-result-main">
-                    <span className="search-result-title">{entry.hub.name}</span>
-                    <span className="search-result-meta">{m.hubLive}</span>
-                  </span>
-                </button>
-              );
-            }
-
-            const v = entry.vehicle;
-            const color = getVehicleColor(v);
-            const badgeStyle = getBadgeStyle(color);
-            const delay = formatDelay(v.delaySeconds, language);
-
-            return (
-              <button
-                key={entry.key}
-                id={`search-opt-${entry.key}`}
-                type="button"
-                role="option"
-                aria-selected={isActive}
-                className={`search-result-item${isActive ? ' active' : ''}`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => selectEntry(entry)}
-              >
-                <span className="search-result-badge" style={badgeStyle}>
-                  {v.lineCode}
-                </span>
-                <span className="search-result-main">
-                  <span className="search-result-title">{v.destination || m.inService}</span>
-                  <span className="search-result-meta">
-                    <ModeIcon mode={v.mode} size={11} color={color} />
-                    <span>{m[v.mode]}</span>
-                    <span>· {v.operator || m.unknownOperator}</span>
-                    {v.nextStopName ? ` · ${m.next(v.nextStopName)}` : ''}
-                  </span>
-                </span>
-                {delay.text !== '—' && (
-                  <span className={`search-result-delay ${delay.tone}`}>{delay.text}</span>
-                )}
-              </button>
-            );
-          })}
+          {resultEntries.map((entry, idx) => (
+            <SearchResultOption key={entry.key} entry={entry} active={idx === activeIndex} onSelect={selectEntry} />
+          ))}
         </div>
       )}
 

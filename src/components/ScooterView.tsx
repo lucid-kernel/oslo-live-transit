@@ -6,11 +6,12 @@ import { useLanguage } from '../i18n/LanguageProvider.tsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { LocateFixed, X } from 'lucide-react';
-import type { AvailableScooter } from '../types/transit.ts';
+import type { AvailableScooter, MapViewport } from '../types/transit.ts';
 import { SCOOTER_OPERATORS } from '../services/sharedMobility.ts';
 import { isWithinBbox } from '../services/geo.ts';
 import { OSLO_CENTER } from '../services/entur.ts';
-import { useScooterAvailability, type ScooterViewport } from '../hooks/useScooterAvailability.ts';
+import { useScooterAvailability } from '../hooks/useScooterAvailability.ts';
+import { readViewport } from './map/viewport.ts';
 import { addScooterLayers, groupScooters } from './map/scooterLayers.ts';
 import { DARK_MATTER_STYLE } from './map/mapLayers.ts';
 import { ScooterCard } from './ScooterCard.tsx';
@@ -21,7 +22,7 @@ export function ScooterView() {
   const { m, language } = useLanguage();
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const [view, setView] = useState<ScooterViewport | null>(null);
+  const [view, setView] = useState<MapViewport | null>(null);
   const [operators, setOperators] = useState(SCOOTER_OPERATORS);
   const { snapshot, failed, current, retry } = useScooterAvailability(view);
   const rows = snapshot?.rows ?? EMPTY;
@@ -47,10 +48,7 @@ export function ScooterView() {
     mapRef.current = map;
     map.touchZoomRotate.disableRotation();
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    const updateView = () => {
-      const b = map.getBounds();
-      setView({ bbox: { minLat: b.getSouth(), maxLat: b.getNorth(), minLon: b.getWest(), maxLon: b.getEast() }, zoom: map.getZoom() });
-    };
+    const updateView = () => setView(readViewport(map));
     const resize = new ResizeObserver(() => map.resize());
     resize.observe(container.current);
     let clickSequence = 0;
