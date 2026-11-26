@@ -14,14 +14,40 @@ interface ViewDockProps {
 export function ViewDock({ selectedMode, onSelectMode, stats, previousTransit = 'all' }: ViewDockProps) {
   const bar = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    bar.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const toolbar = bar.current;
+    if (!toolbar) return;
+    const active = toolbar.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+    active?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if ('focusGroup' in HTMLElement.prototype) return;
+    const buttons = Array.from(toolbar.querySelectorAll('button'));
+    const setTabStop = (item: EventTarget | null) => {
+      for (const button of buttons) button.tabIndex = button === item ? 0 : -1;
+    };
+    setTabStop(active);
+    const focus = (event: FocusEvent) => setTabStop(event.target);
+    const navigate = (event: KeyboardEvent) => {
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const keys: Record<string, number> = {
+        Home: 0, End: buttons.length - 1, ArrowRight: (index + 1) % buttons.length,
+        ArrowLeft: (index - 1 + buttons.length) % buttons.length,
+      };
+      if (!(event.key in keys)) return;
+      event.preventDefault();
+      buttons[keys[event.key]].focus();
+    };
+    toolbar.addEventListener('focusin', focus);
+    toolbar.addEventListener('keydown', navigate);
+    return () => {
+      toolbar.removeEventListener('focusin', focus);
+      toolbar.removeEventListener('keydown', navigate);
+    };
   }, [selectedMode]);
   const total = stats?.total ?? '–';
   const isAll = selectedMode === 'all';
 
   return (
     <nav className="hud-bottom-dock" aria-label="Transit views">
-      <div ref={bar} className="glass-panel view-dock" role="toolbar" aria-label="Select map view">
+      <div ref={bar} {...{ focusgroup: 'toolbar wrap' }} className="glass-panel view-dock" role="toolbar" aria-label="Select map view">
         <button
           type="button"
           aria-pressed={isAll}

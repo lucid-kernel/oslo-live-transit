@@ -72,7 +72,7 @@ export const NEARBY_METRES = 500;
 export async function fetchScooters(area: BoundingBox | OsloHub, signal: AbortSignal): Promise<AvailableScooter[]> {
   const data = await postGraphQL<{
     vehicles: { id: string; lat: number; lon: number; system: { id: string } }[];
-   }>(MOBILITY_ENDPOINT, `
+  }>(MOBILITY_ENDPOINT, `
     query AvailableScooters($minLat: Float, $maxLat: Float, $minLon: Float, $maxLon: Float,
       $lat: Float, $lon: Float, $range: Int) {
       vehicles(minimumLatitude: $minLat, maximumLatitude: $maxLat, minimumLongitude: $minLon,

@@ -14,10 +14,18 @@ export function ScooterCard({ scooter, unavailable, close }: {
     const controller = new AbortController();
     setDetails(undefined);
     setError(false);
-    fetchScooterDetails(scooter.id, controller.signal).then(result => {
-      if (!controller.signal.aborted) setDetails(result);
-    }).catch(() => { if (!controller.signal.aborted) setError(true); });
-    return () => controller.abort();
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await fetchScooterDetails(scooter.id, controller.signal);
+        if (!controller.signal.aborted) setDetails(result);
+      } catch {
+        if (!controller.signal.aborted) setError(true);
+      }
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [scooter.id, unavailable, attempt]);
   const link = details && scooterRentalLink(scooter.operator, details.rentalUris);
   return (
